@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto Insurance Dashboard - LeapForge</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 60px 40px;
+            max-width: 900px;
+            width: 100%;
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+            font-size: 3em;
+            margin-bottom: 20px;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 1.2em;
+            margin-bottom: 50px;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .dashboard-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 15px;
+            padding: 40px 30px;
+            text-decoration: none;
+            color: white;
+            transition: transform 0.3s, box-shadow 0.3s;
+            cursor: pointer;
+        }
+
+        .dashboard-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 15px 40px rgba(102, 126, 234, 0.4);
+        }
+
+        .dashboard-card i {
+            font-size: 3.5em;
+            margin-bottom: 20px;
+            opacity: 0.9;
+        }
+
+        .dashboard-card h2 {
+            font-size: 1.5em;
+            margin-bottom: 10px;
+        }
+
+        .dashboard-card p {
+            opacity: 0.9;
+            font-size: 0.95em;
+        }
+
+        .auto-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .meta-card { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .property-card { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+
+        .api-status {
+            margin-top: 40px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .api-status h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .api-url {
+            color: #667eea;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            word-break: break-all;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #28a745;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 2em; }
+            .container { padding: 40px 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1><i class="fas fa-shield-alt"></i> Insurance Dashboard</h1>
+        <p class="subtitle">LeapForge Auto Insurance Management System</p>
+
+        <div class="dashboard-grid">
+            <a href="Auto dashboard.html" class="dashboard-card auto-card">
+                <i class="fas fa-car"></i>
+                <h2>Auto Dashboard</h2>
+                <p>Process insurance quotes with PDF parsing (DASH/MVR)</p>
+            </a>
+
+            <a href="meta dashboard.html" class="dashboard-card meta-card">
+                <i class="fab fa-meta"></i>
+                <h2>Meta Dashboard</h2>
+                <p>View and manage Facebook Lead Ads</p>
+            </a>
+
+            <a href="property.html" class="dashboard-card property-card">
+                <i class="fas fa-home"></i>
+                <h2>Property Module</h2>
+                <p>Manage property insurance data</p>
+            </a>
+        </div>
+
+        <div class="api-status">
+            <h3><span class="status-indicator"></span>Backend API Status</h3>
+            <p class="api-url">https://auto-dash-lead-1.onrender.com</p>
+            <p style="color: #666; margin-top: 10px; font-size: 0.9em;">All dashboards connected to live production backend</p>
+        </div>
+    </div>
+
+    <script>
+        // Check backend health on page load
+        fetch('https://auto-dash-lead-1.onrender.com/api/health')
+            .then(res => res.json())
+            .then(data => {
+                console.log('✅ Backend API is running:', data);
+            })
+            .catch(err => {
+                console.error('❌ Backend API error:', err);
+                document.querySelector('.status-indicator').style.background = '#dc3545';
+            });
+    </script>
+</body>
+</html>
