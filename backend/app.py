@@ -218,6 +218,23 @@ def send_event_to_meta(lead_id, event_type, event_data):
 
 # ========== API ENDPOINTS ==========
 
+@app.route('/', methods=['GET'])
+def index():
+    """Root endpoint - API info"""
+    return jsonify({
+        'service': 'Auto Insurance Dashboard API',
+        'status': 'running',
+        'version': '1.0.0',
+        'endpoints': {
+            'health': '/api/health',
+            'leads': '/api/leads',
+            'parse_mvr': '/api/parse-mvr',
+            'parse_dash': '/api/parse-dash',
+            'save_client': '/api/save-client',
+            'save_property': '/api/save-property'
+        }
+    }), 200
+
 @app.route('/api/health', methods=['GET'])
 def health():
     """Health check endpoint"""
