@@ -1,0 +1,1744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Broker HUD - Applied AutoRater Ready</title>
+    
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Supabase Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: { slate: { 850: '#151e2e' } },
+                    animation: { 'flash-green': 'flashGreen 0.5s ease-in-out', 'fade-in': 'fadeIn 0.3s ease-out' },
+                    keyframes: {
+                        flashGreen: { '0%, 100%': { backgroundColor: 'transparent' }, '50%': { backgroundColor: '#dcfce7' } },
+                        fadeIn: { '0%': { opacity: '0', transform: 'translateY(5px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } }
+                    },
+                    boxShadow: {
+                        'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
+                        'glow': '0 0 10px rgba(99, 102, 241, 0.2)'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* BEM Block: hud */
+        .hud__smart-copy { cursor: pointer; border-radius: 4px; padding: 2px 6px; transition: all 0.15s ease; position: relative; border-bottom: 1px dashed #cbd5e1; display: inline-block; min-width: 20px; }
+        .hud__smart-copy:hover { background-color: #e0e7ff; color: #4338ca; border-bottom-color: transparent; }
+        .hud__smart-copy::after { content: '\f0c5'; font-family: 'Font Awesome 6 Free'; font-weight: 400; font-size: 0.7em; margin-left: 8px; opacity: 0; transition: opacity 0.15s; color: #6366f1; }
+        .hud__smart-copy:hover::after { opacity: 1; }
+        .hud__smart-copy--success { background-color: #d1fae5 !important; color: #047857 !important; }
+        .hud__smart-copy--success::after { content: '\f00c'; }
+        
+        /* Modern Scrollbar - Scoped to block if possible, but standard is fine */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Smooth Focus and Validation States */
+        .hud__input:focus, .hud__select:focus, .hud__textarea:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
+        
+        .hud__input--invalid { border-color: #ef4444 !important; background-color: #fef2f2 !important; }
+        .hud__input--invalid:focus { box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1) !important; }
+        .hud__input--valid { border-color: #10b981 !important; background-color: #f0fdf4 !important; }
+        .hud__input--valid:focus { box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1) !important; }
+
+        /* Sticky Nav Items */
+        .hud__nav-item {
+            @apply w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-400 flex items-center justify-center text-xs shadow-sm hover:text-indigo-600 hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer mb-2 transform active:scale-95;
+        }
+        .hud__nav-item--active {
+            @apply bg-indigo-600 text-white border-indigo-600 shadow-glow;
+        }
+
+        /* Radio Controls */
+        .hud__radio-chip {
+            @apply px-3 py-1 text-xs border rounded-full transition-all duration-200 select-none text-slate-500 border-slate-200 hover:border-indigo-200 hover:bg-slate-50;
+        }
+        .hud__radio-input:checked + .hud__radio-chip {
+            @apply bg-indigo-600 text-white border-indigo-600 shadow-sm;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 h-screen overflow-hidden font-sans text-slate-600 antialiased">
+
+    <div class="grid grid-cols-[380px_1fr_80px] h-full hud">
+        
+        <!-- LEFT SIDE: DATA ENTRY FORM -->
+        <div class="bg-white h-full overflow-y-auto border-r border-slate-200 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10 relative flex flex-col hud__sidebar">
+            <div class="p-6">
+                <!-- Back Button -->
+                <div class="mb-4">
+                    <a href="meta dashboard.html" class="inline-flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all border border-slate-200 hover:border-indigo-300 shadow-sm">
+                        <i class="fa-solid fa-arrow-left"></i> Back to Leads
+                    </a>
+                </div>
+                
+                <!-- Search Row -->
+                <div class="mb-6 pb-5 border-b border-slate-100 relative hud__search">
+                    <div class="absolute inset-y-0 left-0 top-0 bottom-5 flex items-center pl-3 pointer-events-none">
+                        <i class="fa-solid fa-magnifying-glass text-slate-400"></i>
+                    </div>
+                    <input type="text" id="client-search" autocomplete="off"
+                        class="hud__input block w-full p-2.5 pl-10 text-xs font-medium text-slate-900 border border-slate-200 rounded-lg bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 transition-all placeholder-slate-400 shadow-sm" 
+                        placeholder="Search clients..." 
+                        oninput="App.handleSearch(this.value)"
+                        onfocus="App.handleSearch(this.value)"
+                        onblur="App.handleSearchBlur()">
+                    <div id="search-results" class="hidden absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto hud__search-results"></div>
+                </div>
+
+                <!-- Mode Switcher -->
+                <div class="mb-6 flex p-1 bg-slate-100 rounded-lg border border-slate-200 hud__mode-switcher">
+                    <button type="button" class="flex-1 py-1.5 rounded-md text-xs font-bold text-white bg-slate-800 shadow-sm transition-all flex items-center justify-center gap-2 cursor-default">
+                        <i class="fa-solid fa-car"></i> Auto
+                    </button>
+                </div>
+
+                <!-- AUTO FORM -->
+                <div id="entry-form-auto" class="hud__section" data-scope="driver">
+                    <form id="entryForm" class="space-y-6"> 
+                        <!-- Driver Management -->
+                        <section class="hud__driver-mgmt">
+                            <div class="flex items-center justify-between mb-4 bg-slate-100 p-2 rounded-lg border border-slate-200">
+                                <div class="flex-1 mr-2 relative">
+                                    <select id="driver-selector" onchange="App.switchDriver(this.value)" class="hud__select w-full bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer appearance-none pr-6"></select>
+                                    <i class="fa-solid fa-chevron-down absolute right-0 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none"></i>
+                                </div>
+                                <div class="flex gap-1">
+                                    <button type="button" onclick="App.deleteDriver()" id="btn-delete-driver" class="text-rose-500 hover:text-rose-700 hover:bg-rose-50 text-[10px] font-bold px-2 py-1.5 bg-white rounded border border-rose-200 shadow-sm transition-all active:scale-95">
+                                        <i class="fa-solid fa-trash"></i>
+                                    </button>
+                                    <button type="button" onclick="App.addNewDriver()" class="text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 text-[10px] font-bold px-3 py-1.5 bg-white rounded border border-indigo-200 shadow-sm transition-all flex items-center gap-1 active:scale-95">
+                                        <i class="fa-solid fa-plus"></i> New
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3 mb-3">
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-slate-500 mb-1.5">Driver Name</label>
+                                    <input type="text" data-key="mainName" placeholder="Full Name" class="hud__input hud__input--required w-full h-9 bg-white border border-slate-200 text-slate-700 text-xs rounded-lg px-3 focus:border-indigo-500 transition-all shadow-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-slate-500 mb-1.5">Relationship</label>
+                                    <select data-key="mainRel" class="hud__select w-full h-9 bg-white border border-slate-200 text-slate-700 text-xs rounded-lg px-3 focus:border-indigo-500 transition-all cursor-pointer shadow-sm">
+                                        <option value="Principal">Principal</option>
+                                        <option value="Spouse">Spouse</option>
+                                        <option value="Child">Child</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Report Uploads -->
+                        <section class="hud__uploads">
+                            <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2"><i class="fa-solid fa-cloud-arrow-up text-indigo-500"></i> Report Uploads</h2>
+                            <div class="grid grid-cols-2 gap-3">
+                                <!-- Dash -->
+                                <div id="container-dash" class="hud__upload-box border-2 border-dashed border-slate-200 rounded-lg p-3 flex flex-col items-center justify-center text-center hover:border-indigo-400 hover:bg-indigo-50 transition-all cursor-pointer relative group h-20 active:scale-95">
+                                    <input type="file" id="upload-dash" class="absolute inset-0 opacity-0 cursor-pointer z-10" onchange="App.handleFileUpload(this, 'dash')">
+                                    <i id="icon-dash" class="fa-solid fa-file-pdf text-slate-300 group-hover:text-indigo-500 text-lg mb-1 transition-colors"></i>
+                                    <span id="text-dash" class="text-[10px] font-bold text-slate-500 group-hover:text-indigo-700 truncate w-full px-2">Upload DASH</span>
+                                </div>
+                                <!-- MVR -->
+                                <div id="container-mvr" class="hud__upload-box border-2 border-dashed border-slate-200 rounded-lg p-3 flex flex-col items-center justify-center text-center hover:border-indigo-400 hover:bg-indigo-50 transition-all cursor-pointer relative group h-20 active:scale-95">
+                                    <input type="file" id="upload-mvr" class="absolute inset-0 opacity-0 cursor-pointer z-10" onchange="App.handleFileUpload(this, 'mvr')">
+                                    <i id="icon-mvr" class="fa-solid fa-id-card text-slate-300 group-hover:text-indigo-500 text-lg mb-1 transition-colors"></i>
+                                    <span id="text-mvr" class="text-[10px] font-bold text-slate-500 group-hover:text-indigo-700 truncate w-full px-2">Upload MVR</span>
+                                </div>
+                            </div>
+                        </section>
+                    </form>
+                </div>
+
+            </div>
+            
+            <!-- Footer -->
+            <div class="mt-auto p-4 border-t border-slate-200 bg-slate-50 space-y-3 hud__sidebar-footer">
+                <button onclick="App.saveToDatabase()" class="group w-full text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 px-4 py-3 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 transform active:scale-[0.98]">
+                    <i class="fa-solid fa-database group-hover:scale-110 transition-transform"></i> Save Client Data
+                </button>
+                <div class="flex justify-between items-center px-1">
+                    <div class="text-xs font-bold text-slate-800">System Ready</div>
+                    <div class="text-[10px] text-slate-500 truncate">Ver 4.4 (BEM Adopted)</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- RIGHT PANEL: INDEPENDENT DATA CARDS -->
+        <div id="right-panel-wrapper" class="bg-slate-50 h-full relative overflow-hidden flex hud__main">
+            
+            <!-- Scrollable Content -->
+            <div id="right-panel-scroll" class="flex-1 overflow-y-auto scroll-smooth hud__scroll-area">
+                <div class="sticky top-0 bg-slate-50/95 backdrop-blur-md z-20 px-8 py-4 border-b border-slate-200 flex flex-col justify-between shadow-sm hud__header">
+                    <div><h2 class="text-base font-bold text-slate-800">Applied AutoRater Data Feed</h2><p class="text-[10px] text-slate-400 font-medium uppercase tracking-wide">Manual Data Entry</p></div>
+                </div>
+
+                <div id="tab-content-auto" class="px-8 py-6 space-y-8 max-w-5xl mx-auto pb-20 fade-in pr-16 hud__content">
+                    
+                    <!-- CARD 1: PERSONAL INFORMATION -->
+                    <section id="section-personal" class="hud__section scroll-mt-24" data-scope="driver">
+                        <div class="flex items-center gap-2 mb-3"><span class="flex items-center justify-center w-6 h-6 rounded bg-indigo-100 text-indigo-600 text-xs font-bold">1</span><h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Personal Information</h3></div>
+                        <div class="bg-white rounded-xl shadow-soft border border-slate-200 overflow-hidden relative p-6 space-y-5 hover:shadow-md transition-shadow hud__card">
+                            <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                            
+                            <div class="flex items-center gap-4 hud__field-row">
+                                <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Full Name</div>
+                                <div class="flex-1"><input type="text" data-key="personalName" class="hud__input hud__input--required w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-lg font-bold text-slate-800 placeholder-slate-300" placeholder="Enter Name"></div>
+                            </div>
+                            <div class="flex items-center gap-4 hud__field-row">
+                                <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Full Address</div>
+                                <div class="flex-1"><input type="text" data-key="personalAddress" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-medium text-slate-700 placeholder-slate-300" placeholder="Enter Address"></div>
+                            </div>
+                            <div class="flex items-center gap-4 hud__field-row">
+                                <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Date of Birth</div>
+                                <div class="flex-1"><input type="text" data-key="personalDob" data-mask="date" class="hud__input bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-mono font-bold text-slate-700 w-32" placeholder="MM/DD/YYYY"></div>
+                            </div>
+                            <div class="flex items-center gap-4 hud__field-row">
+                                <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Mobile</div>
+                                <div class="flex-1"><input type="text" data-key="personalMobile" data-mask="phone" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-mono font-bold text-slate-700 placeholder-slate-300" placeholder="(---) --- ----"></div>
+                            </div>
+                            <div class="flex items-center gap-4 hud__field-row">
+                                <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Email</div>
+                                <div class="flex-1"><input type="email" data-key="personalEmail" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-medium text-slate-700 placeholder-slate-300" placeholder="email@example.com"></div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- CARD 2: DRIVER & LICENSING -->
+                    <section id="section-licensing" class="hud__section scroll-mt-24" data-scope="driver">
+                        <div class="flex items-center gap-2 mb-3"><span class="flex items-center justify-center w-6 h-6 rounded bg-indigo-100 text-indigo-600 text-xs font-bold">2</span><h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Driver & Licensing</h3></div>
+                        <div class="bg-white rounded-xl shadow-soft border border-slate-200 overflow-hidden relative p-6 space-y-5 hover:shadow-md transition-shadow hud__card">
+                            <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                            
+                            <div class="flex items-center gap-4 hud__field-row">
+                                <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Renewal Date</div>
+                                <div class="flex-1"><input type="text" data-key="licRenewal" data-mask="date" class="hud__input bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-lg font-mono font-bold text-slate-800 w-32" placeholder="MM/DD/YYYY"></div>
+                            </div>
+                            <div class="flex items-center gap-4 hud__field-row">
+                                <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Licence #</div>
+                                <div class="flex-1"><input type="text" data-key="licNumber" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-lg font-mono font-bold text-indigo-700 placeholder-slate-300" placeholder="L#######"></div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- CARD 3: MVR INFO -->
+                    <section id="section-mvr" class="hud__section scroll-mt-24" data-scope="driver">
+                        <div class="flex items-center gap-2 mb-3"><span class="flex items-center justify-center w-6 h-6 rounded bg-indigo-100 text-indigo-600 text-xs font-bold">3</span><h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">MVR Info</h3></div>
+                        <div class="bg-white rounded-xl shadow-soft border border-slate-200 overflow-hidden relative p-6 hover:shadow-md transition-shadow hud__card">
+                            <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                            
+                            <!-- 2 Col Layout -->
+                            <div class="grid grid-cols-2 gap-8 mb-6">
+                                <div class="space-y-5">
+                                    <div class="flex items-center gap-4 hud__field-row">
+                                        <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Expiry Date</div>
+                                        <div class="flex-1"><input type="text" data-key="mvrExpiry" data-mask="date" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-lg font-mono font-bold text-slate-800" placeholder="MM/DD/YYYY"></div>
+                                    </div>
+                                    <div class="flex items-center gap-4 hud__field-row">
+                                        <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Birthdate</div>
+                                        <div class="flex-1"><input type="text" data-key="mvrDob" data-mask="date" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-lg font-mono font-bold text-slate-800" placeholder="MM/DD/YYYY"></div>
+                                    </div>
+                                    <div class="flex items-center gap-4 hud__field-row">
+                                        <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Issue Date</div>
+                                        <div class="flex-1"><input type="text" data-key="mvrIssue" data-mask="date" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-lg font-mono font-bold text-slate-800" placeholder="MM/DD/YYYY"></div>
+                                    </div>
+                                </div>
+                                <div class="space-y-5">
+                                    <div class="flex items-center gap-4 hud__field-row">
+                                        <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Licence Status</div>
+                                        <div class="flex-1"><input type="text" data-key="mvrStatus" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-bold text-slate-700" placeholder="Valid"></div>
+                                    </div>
+                                    <div class="flex items-center gap-4 hud__field-row">
+                                        <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Demerit Points</div>
+                                        <div class="flex-1"><input type="number" data-key="mvrDemerits" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-bold text-slate-700" placeholder="0"></div>
+                                    </div>
+                                    <div class="flex items-center gap-4 hud__field-row">
+                                        <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Class</div>
+                                        <div class="flex-1"><input type="text" data-key="mvrClass" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-bold text-slate-700" placeholder="G"></div>
+                                    </div>
+                                    <div class="flex items-center gap-4 hud__field-row">
+                                        <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Conditions</div>
+                                        <div class="flex-1"><input type="text" data-key="mvrConditions" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-bold text-slate-700" placeholder="None"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Full Width Convictions -->
+                            <div class="pt-6 border-t border-dashed border-slate-100 space-y-5">
+                                <div class="flex items-center gap-4 hud__field-row">
+                                    <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label"># Convictions</div>
+                                    <div class="flex-1"><input type="number" data-key="mvrConvictions" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-bold text-slate-700" placeholder="0"></div>
+                                </div>
+                                <div class="flex items-start gap-4 hud__field-row">
+                                    <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Conviction</div>
+                                    <div class="flex-1 flex gap-4">
+                                        <div class="w-28 shrink-0">
+                                            <label class="block text-[9px] text-slate-400 uppercase mb-1">Last Date</label>
+                                            <input type="text" data-key="mvrConvictionDate" data-mask="date" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-mono font-bold text-slate-800" placeholder="MM/DD/YYYY">
+                                        </div>
+                                        <div class="flex-1">
+                                            <label class="block text-[9px] text-slate-400 uppercase mb-1">Description</label>
+                                            <textarea data-key="mvrConvictionDesc" rows="2" class="hud__textarea w-full bg-transparent border border-dashed border-slate-300 rounded p-1.5 text-xs font-medium text-slate-700 focus:border-indigo-500 focus:outline-none transition-colors resize-none placeholder-slate-300 leading-tight" placeholder="Enter full conviction details..."></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- CARD 4: VEHICLES -->
+                    <section id="section-vehicles" class="scroll-mt-24 hud__vehicle-section">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2"><span class="flex items-center justify-center w-6 h-6 rounded bg-slate-100 text-slate-500 text-xs font-bold">4</span><h3 class="text-sm font-bold text-slate-500 uppercase tracking-wide">Vehicle Information</h3></div>
+                            <button onclick="App.addVehicle()" class="text-[10px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded transition-all shadow-sm hover:shadow active:scale-95"><i class="fa-solid fa-plus"></i> Add Vehicle</button>
+                        </div>
+                        <div id="vehicles-container" class="space-y-4"></div>
+                    </section>
+
+                    <!-- CARD 5: DRIVER INFORMATION -->
+                    <section id="section-driver" class="hud__section scroll-mt-24" data-scope="driver">
+                        <div class="flex items-center gap-2 mb-3"><span class="flex items-center justify-center w-6 h-6 rounded bg-indigo-100 text-indigo-600 text-xs font-bold">5</span><h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Driver Information</h3></div>
+                        <div class="bg-white rounded-xl shadow-soft border border-slate-200 overflow-hidden relative p-6 space-y-5 hover:shadow-md transition-shadow hud__card">
+                            <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                            <div class="flex items-center gap-4 hud__field-row">
+                                <div class="w-32 text-[10px] font-medium text-slate-500 uppercase text-right pt-2 hud__field-label">Driver Name</div>
+                                <div class="flex-1"><input type="text" data-key="drvName" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-lg font-bold text-slate-800 placeholder-slate-300" placeholder="Driver Name"></div>
+                            </div>
+                            <div class="flex items-center gap-4 hud__field-row">
+                                <div class="w-32 text-[10px] font-medium text-slate-500 uppercase text-right pt-2 hud__field-label">Date of Birth</div>
+                                <div class="flex-1"><input type="text" data-key="drvDob" data-mask="date" class="hud__input bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-lg font-mono font-bold text-slate-800 w-36" placeholder="MM/DD/YYYY"></div>
+                            </div>
+                            <div class="flex items-center gap-4 hud__field-row">
+                                <div class="w-32 text-[10px] font-medium text-slate-500 uppercase text-right pt-2 hud__field-label">Cont. Ins. Date</div>
+                                <div class="flex-1"><input type="text" data-key="drvContIns" data-mask="date" class="hud__input bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-lg font-mono font-bold text-slate-800 w-36" placeholder="MM/DD/YYYY"></div>
+                            </div>
+                            <div class="flex items-center gap-4 hud__field-row">
+                                <div class="w-32 text-[10px] font-medium text-slate-500 uppercase text-right pt-2 hud__field-label">Insured Since</div>
+                                <div class="flex-1"><input type="text" data-key="drvInsSince" data-mask="date" class="hud__input bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-lg font-bold text-slate-800 w-36" placeholder="MM/DD/YYYY"></div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- CARD 6: LICENCE EXPERIENCE -->
+                    <section id="section-exp" class="hud__section scroll-mt-24" data-scope="driver">
+                        <div class="flex items-center gap-2 mb-3"><span class="flex items-center justify-center w-6 h-6 rounded bg-indigo-100 text-indigo-600 text-xs font-bold">6</span><h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Licence Experience</h3></div>
+                        <div class="bg-white rounded-xl shadow-soft border border-slate-200 overflow-hidden p-6 relative hover:shadow-md transition-shadow hud__card">
+                            <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                            
+                            <!-- Inputs -->
+                            <div class="mb-4 bg-slate-50 p-4 rounded-lg border border-slate-200 hud__calc-container">
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-500 uppercase mb-2">Issue Date (Start)</label>
+                                        <input type="text" data-key="expIssueDate" data-mask="date" class="hud__input h-9 border border-slate-300 rounded text-xs w-full px-2" placeholder="MM/DD/YYYY">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-500 uppercase mb-2">First Insurance Date</label>
+                                        <div class="flex gap-2">
+                                            <input type="text" data-key="expFirstIns" data-mask="date" class="hud__input h-9 border border-slate-300 rounded text-xs w-full px-2" placeholder="MM/DD/YYYY">
+                                            <button type="button" onclick="App.calcExpDates()" class="bg-indigo-600 text-white px-3 py-1 rounded text-[10px] font-bold hover:bg-indigo-700 whitespace-nowrap shadow-sm active:scale-95 transition-all">Calc</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Manual Dates & Gaps -->
+                            <div class="space-y-0 relative hud__timeline">
+                                <div class="absolute left-[118px] top-4 bottom-4 w-px border-l border-dashed border-slate-300 z-0"></div>
+                                
+                                <!-- Gap Indicator -->
+                                <div class="flex items-center gap-4 relative z-10 py-1 hud__timeline-gap">
+                                    <div class="w-24 text-right"></div>
+                                    <div class="flex-1 flex items-center pl-4">
+                                        <span id="gap-first-g" class="text-[9px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">--</span>
+                                    </div>
+                                </div>
+
+                                <!-- G Date -->
+                                <div class="flex items-center gap-4 relative z-10 bg-white py-1 hud__timeline-item">
+                                    <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-1 hud__timeline-label">G Date</div>
+                                    <div class="flex-1 flex items-center gap-3">
+                                        <div class="w-2 h-2 rounded-full bg-indigo-500 -ml-[5px] ring-4 ring-white"></div>
+                                        <input type="text" data-key="expGDate" data-mask="date" class="hud__input flex-1 bg-slate-50 border border-slate-100 rounded px-2 py-1.5 text-sm font-mono font-bold text-slate-800 shadow-sm" placeholder="MM/DD/YYYY">
+                                    </div>
+                                </div>
+
+                                <!-- Gap Indicator -->
+                                <div class="flex items-center gap-4 relative z-10 py-1 hud__timeline-gap">
+                                    <div class="w-24 text-right"></div>
+                                    <div class="flex-1 flex items-center pl-4">
+                                        <span id="gap-g-g2" class="text-[9px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">--</span>
+                                    </div>
+                                </div>
+
+                                <!-- G2 Date -->
+                                <div class="flex items-center gap-4 relative z-10 bg-white py-1 hud__timeline-item">
+                                    <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-1 hud__timeline-label">G2 Date</div>
+                                    <div class="flex-1 flex items-center gap-3">
+                                        <div class="w-2 h-2 rounded-full bg-indigo-400 -ml-[5px] ring-4 ring-white"></div>
+                                        <input type="text" data-key="expG2Date" data-mask="date" class="hud__input flex-1 bg-slate-50 border border-slate-100 rounded px-2 py-1.5 text-sm font-mono font-bold text-slate-800 shadow-sm" placeholder="MM/DD/YYYY">
+                                    </div>
+                                </div>
+
+                                <!-- Gap Indicator -->
+                                <div class="flex items-center gap-4 relative z-10 py-1 hud__timeline-gap">
+                                    <div class="w-24 text-right"></div>
+                                    <div class="flex-1 flex items-center pl-4">
+                                        <span id="gap-g2-g1" class="text-[9px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">--</span>
+                                    </div>
+                                </div>
+
+                                <!-- G1 Date -->
+                                <div class="flex items-center gap-4 relative z-10 bg-white py-1 hud__timeline-item">
+                                    <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-1 hud__timeline-label">G1 Date</div>
+                                    <div class="flex-1 flex items-center gap-3">
+                                        <div class="w-2 h-2 rounded-full bg-indigo-300 -ml-[5px] ring-4 ring-white"></div>
+                                        <input type="text" data-key="expG1Date" data-mask="date" class="hud__input flex-1 bg-slate-50 border border-slate-100 rounded px-2 py-1.5 text-sm font-mono font-bold text-slate-800 shadow-sm" placeholder="MM/DD/YYYY">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- CARD 7: GAP -->
+                    <section id="section-gap" class="hud__section scroll-mt-24" data-scope="driver">
+                        <div class="flex items-center gap-2 mb-3"><span class="flex items-center justify-center w-6 h-6 rounded bg-indigo-100 text-indigo-600 text-xs font-bold">7</span><h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Gap Calculation</h3></div>
+                        <div class="bg-white rounded-xl shadow-soft border border-slate-200 overflow-hidden relative p-6 space-y-5 hover:shadow-md transition-shadow hud__card">
+                            <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                            <div class="grid grid-cols-3 gap-4 items-end hud__field-grid">
+                                <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Start of Term</label><input type="text" data-key="gapStart" data-mask="date" class="hud__input w-full text-sm font-mono font-bold text-indigo-700 bg-indigo-50 px-3 py-2 rounded-lg border border-indigo-100 text-center shadow-sm" placeholder="MM/DD/YYYY"></div>
+                                <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Prev Expire</label><input type="text" data-key="gapEnd" data-mask="date" class="hud__input w-full text-sm font-mono font-bold text-slate-700 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 text-center shadow-sm" placeholder="MM/DD/YYYY"></div>
+                                <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Insurance Gap</label><input type="text" id="gap-days-output" readonly class="hud__input w-full text-sm font-mono font-bold text-slate-700 bg-slate-100 px-3 py-2 rounded-lg border border-slate-200 text-center shadow-inner" placeholder="0 Days"></div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- CARD 8: CLAIMS -->
+                    <section id="section-claims" class="hud__section scroll-mt-24" data-scope="driver">
+                        <div class="flex items-center gap-2 mb-3"><span class="flex items-center justify-center w-6 h-6 rounded bg-indigo-100 text-indigo-600 text-xs font-bold">8</span><h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide">Claims History</h3></div>
+                        <div id="claims-container">
+                            <!-- Claims will be dynamically rendered here -->
+                        </div>
+                    </section>
+
+                </div>
+            </div>
+            
+            <!-- STICKY MINI NAV -->
+            <div id="sticky-mini-nav" class="absolute top-1/2 right-4 -translate-y-1/2 flex flex-col z-30 space-y-2 hud__nav-rail">
+                <a href="#section-personal" class="hud__nav-item group relative" aria-label="Personal Info">
+                    <i class="fa-solid fa-user"></i>
+                    <span class="absolute right-full mr-2 top-1/2 -translate-y-1/2 bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0 pointer-events-none whitespace-nowrap shadow-sm">Personal Info</span>
+                </a>
+                <a href="#section-licensing" class="hud__nav-item group relative" aria-label="Licensing">
+                    <i class="fa-solid fa-id-card"></i>
+                    <span class="absolute right-full mr-2 top-1/2 -translate-y-1/2 bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0 pointer-events-none whitespace-nowrap shadow-sm">Licensing</span>
+                </a>
+                <a href="#section-mvr" class="hud__nav-item group relative" aria-label="MVR Info">
+                    <i class="fa-solid fa-file-contract"></i>
+                    <span class="absolute right-full mr-2 top-1/2 -translate-y-1/2 bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0 pointer-events-none whitespace-nowrap shadow-sm">MVR Info</span>
+                </a>
+                <a href="#section-vehicles" class="hud__nav-item group relative" aria-label="Vehicles">
+                    <i class="fa-solid fa-car"></i>
+                    <span class="absolute right-full mr-2 top-1/2 -translate-y-1/2 bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0 pointer-events-none whitespace-nowrap shadow-sm">Vehicles</span>
+                </a>
+                <a href="#section-driver" class="hud__nav-item group relative" aria-label="Driver Info">
+                    <i class="fa-solid fa-address-card"></i>
+                    <span class="absolute right-full mr-2 top-1/2 -translate-y-1/2 bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0 pointer-events-none whitespace-nowrap shadow-sm">Driver Info</span>
+                </a>
+                <a href="#section-exp" class="hud__nav-item group relative" aria-label="Experience">
+                    <i class="fa-solid fa-timeline"></i>
+                    <span class="absolute right-full mr-2 top-1/2 -translate-y-1/2 bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0 pointer-events-none whitespace-nowrap shadow-sm">Experience</span>
+                </a>
+                <a href="#section-gap" class="hud__nav-item group relative" aria-label="Gap">
+                    <i class="fa-solid fa-stopwatch"></i>
+                    <span class="absolute right-full mr-2 top-1/2 -translate-y-1/2 bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0 pointer-events-none whitespace-nowrap shadow-sm">Gap Calc</span>
+                </a>
+                <a href="#section-claims" class="hud__nav-item group relative" aria-label="Claims">
+                    <i class="fa-solid fa-heart-crack"></i>
+                    <span class="absolute right-full mr-2 top-1/2 -translate-y-1/2 bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0 pointer-events-none whitespace-nowrap shadow-sm">Claims</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- RIGHT SIDE: NAVIGATION RAIL -->
+        <div class="bg-white border-l border-slate-200 h-full flex flex-col items-center py-6 px-2 gap-4 z-20 shadow-[-4px_0_24px_rgba(0,0,0,0.02)]">
+            <button onclick="window.location.href='property.html'" class="w-full flex flex-col items-center justify-center gap-1.5 px-3 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-all shadow-sm hover:shadow-md transform hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                <i class="fa-solid fa-house text-base"></i>
+                <span class="text-[10px] font-bold leading-tight">Property</span>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- UX HELPERS ---
+        const UX = {
+            // Input Masks
+            formatDate: (val) => {
+                let v = val.replace(/\D/g, '').substring(0, 8); 
+                if (v.length >= 5) return `${v.substring(0, 2)}/${v.substring(2, 4)}/${v.substring(4, 8)}`;
+                if (v.length >= 3) return `${v.substring(0, 2)}/${v.substring(2, 4)}`;
+                return v;
+            },
+            formatPhone: (val) => {
+                let v = val.replace(/\D/g, '').substring(0, 10);
+                if (v.length >= 7) return `(${v.substring(0, 3)}) ${v.substring(3, 6)}-${v.substring(6, 10)}`;
+                if (v.length >= 4) return `(${v.substring(0, 3)}) ${v.substring(3, 6)}`;
+                if (v.length > 0) return `(${v.substring(0, 3)}`;
+                return v;
+            },
+            // BEM Adoption: Validation Classes
+            validate: (el) => {
+                const val = el.value.trim();
+                let isValid = true;
+                
+                if (el.classList.contains('hud__input--required') && val === '') isValid = false;
+                if (el.dataset.mask === 'date' && val.length > 0 && val.length < 10) isValid = false;
+                if (el.dataset.mask === 'phone' && val.length > 0 && val.length < 14) isValid = false;
+
+                if (isValid && val.length > 0) {
+                    el.classList.add('hud__input--valid');
+                    el.classList.remove('hud__input--invalid');
+                } else if (!isValid) {
+                    el.classList.add('hud__input--invalid');
+                    el.classList.remove('hud__input--valid');
+                } else {
+                    el.classList.remove('hud__input--valid', 'hud__input--invalid');
+                }
+            }
+        };
+
+        // --- SIMPLE BINDER (One-way or explicit sync only) ---
+        const Binder = {
+            syncFromDom: (scope, stateObj, target) => {
+                if (target && target.matches(`.hud__section[data-scope="${scope}"] [data-key]`)) {
+                    const key = target.dataset.key;
+                    if (target.type === 'checkbox') stateObj[key] = target.checked ? 'Yes' : 'No';
+                    else if (target.type === 'radio') { if (target.checked) stateObj[key] = target.value; }
+                    else stateObj[key] = target.value;
+                }
+            },
+            loadToDom: (scope, stateObj) => {
+                if (!stateObj) return; 
+                document.querySelectorAll(`.hud__section[data-scope="${scope}"] [data-key]`).forEach(el => {
+                    const key = el.dataset.key;
+                    let val = (stateObj[key] !== undefined && stateObj[key] !== null) ? stateObj[key] : '';
+                    if (el.type === 'checkbox') el.checked = (val === 'Yes' || val === true);
+                    else if (el.type === 'radio') el.checked = (el.value === val);
+                    else el.value = val;
+                    UX.validate(el);
+                });
+            }
+        };
+
+
+        // ========== APP LOGIC ==========
+        const App = {
+            drivers: [], currDrvIdx: 0, 
+
+            init: function() {
+                this.initNewClient();
+                document.body.addEventListener('input', (e) => this.handleInput(e));
+                document.body.addEventListener('change', (e) => this.handleInput(e));
+                
+                // Highlight Mini Nav on Scroll
+                const scrollContainer = document.getElementById('right-panel-scroll');
+                scrollContainer.addEventListener('scroll', () => {
+                    const sections = document.querySelectorAll('.hud__section');
+                    let current = '';
+                    sections.forEach(section => {
+                        const sectionTop = section.offsetTop;
+                        if (scrollContainer.scrollTop >= (sectionTop - 150)) {
+                            current = section.getAttribute('id');
+                        }
+                    });
+                    document.querySelectorAll('.hud__nav-item').forEach(a => {
+                        a.classList.remove('hud__nav-item--active');
+                        if (a.getAttribute('href').includes(current)) {
+                            a.classList.add('hud__nav-item--active');
+                        }
+                    });
+                });
+            },
+
+            createDriver: function(id) {
+                return {
+                    id: id,
+                    mainName: '', mainRel: 'Spouse',
+                    personalName: '', personalAddress: '', personalDob: '', personalMobile: '', personalEmail: '',
+                    licRenewal: '', licNumber: '',
+                    mvrExpiry: '', mvrDob: '', mvrIssue: '', mvrStatus: '', mvrDemerits: '', mvrClass: '', mvrConditions: '', mvrConvictions: '', mvrConvictionDate: '', mvrConvictionDesc: '',
+                    drvName: '', drvDob: '', drvContIns: '', drvInsSince: '',
+                    expIssueDate: '', expFirstIns: '', expGDate: '', expG2Date: '', expG1Date: '',
+                    gapStart: '', gapEnd: '',
+                    claimDate: '', claimFault: '', claimDesc: '', claimLoss: '', claimExpense: '', claimTotal: '',
+                    files: { dash: null, mvr: null },
+                    vehicles: [{ id: 1, vin: '', yearMake: '', condition: 'Used', financing: 'Paid Off', purchaseDate: '', purchaseKm: '', use: 'Commute', annualKm: '', winterTires: 'No', antiTheft: 'No', rideSharing: 'No' }]
+                };
+            },
+
+            initNewClient: function() {
+                console.log('🚀 initNewClient started');
+                
+                this.drivers = [this.createDriver(1)];
+                this.drivers[0].mainRel = 'Principal';
+                this.currDrvIdx = 0; 
+                
+                // Check for URL parameters FIRST (from meta dashboard)
+                const urlParams = new URLSearchParams(window.location.search);
+                const name = urlParams.get('name');
+                const phone = urlParams.get('phone');
+                const email = urlParams.get('email');
+                
+                console.log('🔗 URL params:', { name, phone, email });
+                console.log('🔗 URL string:', window.location.search);
+                
+                // Store original lead data from URL params (for restoring when search is cleared)
+                this.originalLead = {
+                    name: name || '',
+                    phone: phone || '',
+                    email: email || ''
+                };
+                console.log('💾 Stored original lead from URL params:', this.originalLead);
+                
+                // Populate driver object with URL params BEFORE refreshUI
+                const drv = this.drivers[0];
+                console.log('📦 Driver object before URL params:', {...drv});
+                
+                if (phone) {
+                    drv.personalMobile = phone;
+                    console.log('✅ Phone set in driver object:', phone);
+                }
+                if (email) {
+                    drv.personalEmail = email;
+                    console.log('✅ Email set in driver object:', email);
+                }
+                // NOTE: Name is NOT set in driver object from URL params
+                // It will only be populated from DASH PDF
+                // Only the search field shows the URL param name
+                
+                console.log('📦 Driver object after URL params:', {...drv});
+                
+                // NOW render and refresh UI with the URL param values already in driver object
+                this.renderSelectors();
+                console.log('✅ renderSelectors done');
+                
+                this.refreshUI();
+                console.log('✅ refreshUI done');
+                
+                // FORCE set input values directly as backup (phone and email only)
+                if (phone || email) {
+                    setTimeout(() => {
+                        if (phone) {
+                            const phoneInput = document.querySelector('[data-key="personalMobile"]');
+                            if (phoneInput && !phoneInput.value) {
+                                phoneInput.value = phone;
+                                console.log('🔧 FORCE set phone input:', phone);
+                            }
+                        }
+                        if (email) {
+                            const emailInput = document.querySelector('[data-key="personalEmail"]');
+                            if (emailInput && !emailInput.value) {
+                                emailInput.value = email;
+                                console.log('🔧 FORCE set email input:', email);
+                            }
+                        }
+                    }, 300);
+                }
+                
+                // Verify inputs after refreshUI
+                setTimeout(() => {
+                    const phoneInput = document.querySelector('[data-key="personalMobile"]');
+                    const emailInput = document.querySelector('[data-key="personalEmail"]');
+                    
+                    console.log('🔍 After refreshUI - Input values:');
+                    console.log('  Phone input:', phoneInput?.value, '(expected:', phone, ')');
+                    console.log('  Email input:', emailInput?.value, '(expected:', email, ')');
+                    console.log('  Name input: (empty - will be populated from DASH PDF)');
+                }, 200);
+                
+                // Set search field separately
+                if (name) {
+                    setTimeout(() => {
+                        const searchInput = document.getElementById('client-search');
+                        if (searchInput) {
+                            searchInput.value = name;
+                            console.log('✅ Search field set:', name);
+                        }
+                    }, 100);
+                }
+            },
+
+            handleGlobalEvent: function(e) {
+                const target = e.target;
+                // Input Masks
+                if (e.type === 'input') {
+                    if (target.dataset.mask === 'date') target.value = UX.formatDate(target.value);
+                    if (target.dataset.mask === 'phone') target.value = UX.formatPhone(target.value);
+                    UX.validate(target); 
+                }
+
+                if(!target.dataset.key) return;
+
+                const currentDriver = this.drivers[this.currDrvIdx];
+                if (target.closest('.hud__section[data-scope="driver"]')) {
+                    Binder.syncFromDom('driver', currentDriver, target);
+                    if(target.dataset.key === 'mainName') {
+                        const sel = document.getElementById('driver-selector');
+                        if(sel && sel.options[this.currDrvIdx]) {
+                            sel.options[this.currDrvIdx].text = `Driver ${currentDriver.id}: ${currentDriver.mainName || 'New'}`;
+                        }
+                    }
+                    
+                    if(['expGDate', 'expG2Date', 'expG1Date', 'expFirstIns'].includes(target.dataset.key)) {
+                        this.updateLicenceGaps();
+                    }
+
+                    if(['gapStart', 'gapEnd'].includes(target.dataset.key)) {
+                        this.calcInsuranceGap();
+                    }
+                } 
+                else {
+                    const vScope = target.closest('.hud__section[data-scope^="vehicle-"]');
+                    if(vScope) {
+                        const vIdx = parseInt(vScope.dataset.scope.split('-')[1]);
+                        if(currentDriver.vehicles[vIdx]) {
+                            Binder.syncFromDom(`vehicle-${vIdx}`, currentDriver.vehicles[vIdx], target);
+                        }
+                    }
+                }
+            },
+
+            addVehicle: function() {
+                const vs = this.drivers[this.currDrvIdx].vehicles;
+                vs.push({ id: vs.length + 1, vin: '', yearMake: '', condition: 'Used', financing: 'Paid Off', purchaseDate: '', purchaseKm: '', use: 'Commute', annualKm: '', winterTires: 'No', antiTheft: 'No', rideSharing: 'No' });
+                this.refreshUI();
+            },
+
+            deleteVehicle: function(idx) {
+                const vs = this.drivers[this.currDrvIdx].vehicles;
+                if (vs.length <= 1) return;
+                vs.splice(idx, 1);
+                this.refreshUI();
+            },
+
+            addNewDriver: function() {
+                this.drivers.push(this.createDriver(this.drivers.length + 1));
+                this.currDrvIdx = this.drivers.length - 1;
+                this.renderSelectors(); 
+                this.refreshUI();
+            },
+            
+            deleteDriver: function() {
+                if(this.drivers.length <= 1) return;
+                this.drivers.splice(this.currDrvIdx, 1); 
+                if (this.currDrvIdx >= this.drivers.length) this.currDrvIdx = this.drivers.length - 1;
+                this.drivers.forEach((d, i) => d.id = i + 1);
+                this.renderSelectors(); 
+                this.refreshUI(); 
+            },
+
+            switchDriver: function(idx) { 
+                this.currDrvIdx = parseInt(idx); 
+                this.refreshUI(); 
+            },
+
+            refreshUI: function() {
+                const drv = this.drivers[this.currDrvIdx];
+                document.querySelectorAll('.hud__input').forEach(i => { 
+                    if(i.type !== 'radio' && i.type !== 'checkbox') i.value = ''; 
+                    i.classList.remove('hud__input--valid', 'hud__input--invalid'); 
+                });
+                Binder.loadToDom('driver', drv);
+                this.renderVehicleCards(drv.vehicles);
+                drv.vehicles.forEach((v, i) => Binder.loadToDom(`vehicle-${i}`, v));
+                this.updateFileUI('dash', drv.files?.dash);
+                this.updateFileUI('mvr', drv.files?.mvr);
+                this.updateLicenceGaps();
+                this.calcInsuranceGap();
+            },
+
+            renderSelectors: function() {
+                const dSel = document.getElementById('driver-selector'); dSel.innerHTML = '';
+                this.drivers.forEach((d, i) => dSel.add(new Option(`Driver ${d.id}: ${d.mainName || 'New'}`, i, i===this.currDrvIdx, i===this.currDrvIdx)));
+                document.getElementById('btn-delete-driver').disabled = (this.drivers.length <= 1);
+            },
+
+            renderVehicleCards: function(vehicles) {
+                document.getElementById('vehicles-container').innerHTML = vehicles.map((v, i) => `
+                    <div class="bg-white rounded-xl shadow-lg shadow-indigo-100 border border-indigo-200 overflow-hidden relative hud__section hud__card" data-scope="vehicle-${i}">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                        <div class="absolute top-3 right-3 z-10 hud__card-actions">
+                            ${vehicles.length > 1 ? `<button onclick="App.deleteVehicle(${i})" class="text-xs text-rose-400 hover:text-rose-600 hover:bg-rose-50 p-1.5 rounded transition-colors"><i class="fa-solid fa-trash"></i></button>` : ''}
+                        </div>
+                        
+                        <div class="p-6 space-y-5">
+                            <div class="flex items-start gap-5 border-b border-dashed border-slate-100 pb-5 hud__field-header">
+                                <div class="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0 mt-1 hud__card-icon">
+                                    <i class="fa-solid fa-car"></i>
+                                </div>
+                                <div class="flex-1 grid grid-cols-[1.5fr_1fr] gap-5 hud__field-grid">
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">VIN Number</label>
+                                        <div class="relative">
+                                            <input type="text" data-key="vin" class="hud__input w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono font-bold text-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder-slate-400 uppercase" placeholder="ENTER 17-CHAR VIN">
+                                            <i class="fa-solid fa-fingerprint absolute left-2.5 top-2.5 text-slate-400"></i>
+                                        </div>
+                                    </div>
+                                    <div>
+                                         <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Year Make Model</label>
+                                         <input type="text" data-key="yearMake" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 focus:outline-none transition-colors text-sm font-bold text-slate-700 pb-1 mt-1.5" placeholder="e.g. 2024 Toyota Camry">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-8 hud__card-body">
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Condition</label>
+                                        <div class="flex gap-4">
+                                            <label class="flex items-center gap-1.5 cursor-pointer group">
+                                                <input type="radio" name="c-${i}" data-key="condition" value="New" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">New</span>
+                                            </label>
+                                            <label class="flex items-center gap-1.5 cursor-pointer group">
+                                                <input type="radio" name="c-${i}" data-key="condition" value="Used" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Used</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Ownership</label>
+                                        <div class="flex flex-col gap-2">
+                                            <label class="flex items-center gap-1.5 cursor-pointer group">
+                                                <input type="radio" name="f-${i}" data-key="financing" value="Leased" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Leased</span>
+                                            </label>
+                                            <label class="flex items-center gap-1.5 cursor-pointer group">
+                                                <input type="radio" name="f-${i}" data-key="financing" value="Financed" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Financed</span>
+                                            </label>
+                                            <label class="flex items-center gap-1.5 cursor-pointer group">
+                                                <input type="radio" name="f-${i}" data-key="financing" value="Paid Off" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Paid Off</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="space-y-5">
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Purchase Date</label>
+                                        <input type="text" data-key="purchaseDate" data-mask="date" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 focus:outline-none transition-colors text-sm font-medium text-slate-700 pb-1" placeholder="MM/DD/YYYY">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Purchase KM</label>
+                                        <input type="number" data-key="purchaseKm" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 focus:outline-none transition-colors text-sm font-medium text-slate-700 pb-1" placeholder="0">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Annual KM</label>
+                                        <input type="number" data-key="annualKm" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 focus:outline-none transition-colors text-sm font-medium text-slate-700 pb-1" placeholder="0">
+                                    </div>
+                                </div>
+
+                                <div class="space-y-5">
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Primary Use</label>
+                                        <select data-key="use" class="hud__select w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 focus:outline-none transition-colors text-sm font-medium text-slate-700 pb-1 cursor-pointer">
+                                            <option value="Commute">Commute</option>
+                                            <option value="Pleasure">Pleasure</option>
+                                            <option value="Business">Business</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Winter Tires</label>
+                                        <div class="flex gap-4">
+                                            <label class="flex items-center gap-1.5 cursor-pointer group">
+                                                <input type="radio" name="w-${i}" data-key="winterTires" value="Yes" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Yes</span>
+                                            </label>
+                                            <label class="flex items-center gap-1.5 cursor-pointer group">
+                                                <input type="radio" name="w-${i}" data-key="winterTires" value="No" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">No</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Anti-Theft</label>
+                                        <div class="flex gap-4">
+                                            <label class="flex items-center gap-1.5 cursor-pointer group">
+                                                <input type="radio" name="t-${i}" data-key="antiTheft" value="Yes" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Yes</span>
+                                            </label>
+                                            <label class="flex items-center gap-1.5 cursor-pointer group">
+                                                <input type="radio" name="t-${i}" data-key="antiTheft" value="No" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">No</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Ride Share / Delivery</label>
+                                        <div class="flex gap-4">
+                                            <label class="flex items-center gap-1.5 cursor-pointer group">
+                                                <input type="radio" name="rs-${i}" data-key="rideSharing" value="Yes" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Yes</span>
+                                            </label>
+                                            <label class="flex items-center gap-1.5 cursor-pointer group">
+                                                <input type="radio" name="rs-${i}" data-key="rideSharing" value="No" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">No</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            },
+
+            handleFileUpload: async function(input, type) {
+                if(input.files[0]) {
+                    if(!this.drivers[this.currDrvIdx].files) this.drivers[this.currDrvIdx].files = {};
+                    this.drivers[this.currDrvIdx].files[type] = input.files[0].name;
+                    this.updateFileUI(type, input.files[0].name);
+                    
+                    // Parse PDF files and auto-fill fields
+                    if (type === 'mvr') {
+                        await this.parsePDF(input.files[0], 'mvr');
+                    } else if (type === 'dash') {
+                        await this.parsePDF(input.files[0], 'dash');
+                    }
+                }
+            },
+
+            parsePDF: async function(file, type) {
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    
+                    // Show loading indicator
+                    const container = document.getElementById(`container-${type}`);
+                    const originalHTML = container.innerHTML;
+                    container.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-indigo-600 text-lg"></i><span class="text-xs text-indigo-600 mt-1">Parsing...</span>';
+                    
+                    const endpoint = type === 'mvr' ? 'parse-mvr' : 'parse-dash';
+                    const response = await fetch(`http://localhost:5000/api/${endpoint}`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    // Restore UI
+                    container.innerHTML = originalHTML;
+                    
+                    if (result.success && result.data) {
+                        const drv = this.drivers[this.currDrvIdx];
+                        const data = result.data;
+                        
+                        // Debug: show raw text
+                        if (result.raw_text) {
+                            console.log('=== PDF RAW TEXT ===');
+                            console.log(result.raw_text);
+                            console.log('=== END RAW TEXT ===');
+                        }
+                        
+                        console.log(`${type.toUpperCase()} data extracted:`, data);
+                        
+                        // Show what fields are available vs what we're trying to set
+                        console.log('Available data fields:', Object.keys(data));
+                        console.log('Setting fields for driver:', this.currDrvIdx);
+                        
+                        // Auto-fill fields based on PDF type
+                        if (type === 'dash') {
+                            // DASH PDF: All sections EXCEPT MVR Info
+                            
+                            console.log('Setting DASH data to driver object:', {
+                                name: data.name,
+                                address: data.address,
+                                dob: data.dob,
+                                license: data.license_number,
+                                renewal: data.issue_date || data.expiry_date
+                            });
+                            
+                            // Section 1: Personal Information
+                            // Preserve existing values if not in PDF (from URL params)
+                            if (data.name) {
+                                drv.personalName = data.name;
+                                drv.mainName = data.name;
+                                // NOTE: Search field keeps the URL param name (lead name)
+                                // Main name field shows DASH PDF name
+                                console.log('✅ Set name from DASH PDF:', data.name);
+                            } // Don't clear name if PDF doesn't have it
+                            if (data.address) drv.personalAddress = data.address;
+                            if (data.dob) drv.personalDob = data.dob;
+                            if (data.phone) {
+                                drv.personalMobile = data.phone;
+                            } // Don't clear phone if PDF doesn't have it - keep URL param value
+                            if (data.email) {
+                                drv.personalEmail = data.email;
+                            } // Don't clear email if PDF doesn't have it - keep URL param value
+                            
+                            // Section 2: Driver & Licensing
+                            if (data.license_number) {
+                                drv.licNumber = data.license_number;
+                                console.log('✅ Set license:', data.license_number);
+                            }
+                            if (data.issue_date) {
+                                drv.licRenewal = data.issue_date;
+                                console.log('✅ Set renewal from issue_date:', data.issue_date);
+                            } else if (data.expiry_date) {
+                                drv.licRenewal = data.expiry_date;
+                                console.log('✅ Set renewal from expiry_date:', data.expiry_date);
+                            } else {
+                                console.warn('⚠️ No renewal/issue/expiry date found in PDF');
+                            }
+                            if (data.license_class) {
+                                drv.licClass = data.license_class;
+                                console.log('✅ Set class:', data.license_class);
+                            }
+                            
+                            console.log('Driver object before refreshUI:', {
+                                licNumber: drv.licNumber,
+                                licRenewal: drv.licRenewal,
+                                licClass: drv.licClass,
+                                personalName: drv.personalName,
+                                personalDob: drv.personalDob,
+                                drvDob: drv.drvDob,
+                                drvContIns: drv.drvContIns,
+                                drvInsSince: drv.drvInsSince,
+                                expIssueDate: drv.expIssueDate,
+                                expFirstIns: drv.expFirstIns,
+                                expPrevExpiry: drv.expPrevExpiry,
+                                vehicle0_vin: drv.vehicles[0]?.vin,
+                                vehicle0_yearMake: drv.vehicles[0]?.yearMake
+                            });
+                            
+                            // VIN and Vehicle info - add to first vehicle if extracted
+                            if (drv.vehicles && drv.vehicles[0]) {
+                                if (data.vin) {
+                                    drv.vehicles[0].vin = data.vin;
+                                    console.log('🚗 Set VIN to first vehicle:', data.vin);
+                                }
+                                if (data.vehicle_year_make_model) {
+                                    drv.vehicles[0].yearMake = data.vehicle_year_make_model;
+                                    console.log('🚗 Set Year/Make/Model to first vehicle:', data.vehicle_year_make_model);
+                                }
+                            } else if (data.vin || data.vehicle_year_make_model) {
+                                console.warn('⚠️ Vehicle data extracted but no vehicle found');
+                            }
+                            
+                            // Section 5: Driver Information
+                            if (data.name) drv.drvName = data.name;
+                            if (data.dob) drv.drvDob = data.dob;  // Date of Birth in Driver Info
+                            if (data.years_continuous_insurance) {
+                                drv.drvContIns = data.years_continuous_insurance;
+                                console.log('✅ Set Continuous Insurance Years:', data.years_continuous_insurance);
+                            }
+                            if (data.policy_start_date) {
+                                drv.drvInsSince = data.policy_start_date;  // Insured Since date
+                                console.log('✅ Set Insured Since:', data.policy_start_date);
+                            }
+                            if (data.relationship) drv.mainRel = data.relationship;
+                            
+                            // Section 6: License Experience Calculation
+                            // First Insurance = Start date of the LAST/oldest policy (e.g., Policy #6)
+                            // G = First Insurance - 1 year
+                            // G2 = First Insurance - 3 years
+                            // G1 = First Insurance - 5 years
+                            if (data.first_insurance_date) {
+                                drv.expFirstIns = data.first_insurance_date;  // First Insurance Date = Last policy start
+                                console.log('✅ Set First Insurance (from last policy):', data.first_insurance_date);
+                                
+                                // Calculate G, G2, G1 dates
+                                const firstInsDate = new Date(data.first_insurance_date);
+                                
+                                // G = First Insurance - 1 year
+                                const gDate = new Date(firstInsDate);
+                                gDate.setFullYear(gDate.getFullYear() - 1);
+                                drv.expGDate = `${String(gDate.getMonth() + 1).padStart(2, '0')}/${String(gDate.getDate()).padStart(2, '0')}/${gDate.getFullYear()}`;
+                                console.log('✅ Calculated G (First Ins - 1 year):', drv.expGDate);
+                                
+                                // G2 = First Insurance - 3 years
+                                const g2Date = new Date(firstInsDate);
+                                g2Date.setFullYear(g2Date.getFullYear() - 3);
+                                drv.expG2Date = `${String(g2Date.getMonth() + 1).padStart(2, '0')}/${String(g2Date.getDate()).padStart(2, '0')}/${g2Date.getFullYear()}`;
+                                console.log('✅ Calculated G2 (First Ins - 3 years):', drv.expG2Date);
+                                
+                                // G1 = First Insurance - 5 years
+                                const g1Date = new Date(firstInsDate);
+                                g1Date.setFullYear(g1Date.getFullYear() - 5);
+                                drv.expG1Date = `${String(g1Date.getMonth() + 1).padStart(2, '0')}/${String(g1Date.getDate()).padStart(2, '0')}/${g1Date.getFullYear()}`;
+                                console.log('✅ Calculated G1 (First Ins - 5 years):', drv.expG1Date);
+                            }
+                            
+                            // Section 7: Gap Calculation fields
+                            if (data.policy_start_date) {
+                                drv.gapStart = data.policy_start_date;  // Gap Calculation Start
+                                console.log('✅ Set Gap Start:', data.policy_start_date);
+                            }
+                            if (data.policy_end_date) {
+                                drv.expPrevExpiry = data.policy_end_date;  // Previous Expiry
+                                drv.gapEnd = data.policy_end_date;  // Gap Calculation End
+                                console.log('✅ Set Gap End:', data.policy_end_date);
+                            }
+                            
+                            // Section 8: Claims History - store and render claim sections FIRST
+                            console.log('Claims data from PDF:', data.claims);
+                            console.log('Number of claims:', data.claims ? data.claims.length : 0);
+                            
+                            if (data.claims && data.claims.length > 0) {
+                                drv.claims = data.claims;
+                                console.log(`Storing ${data.claims.length} claims in driver data`);
+                            } else {
+                                drv.claims = [];
+                                console.log('No claims found - clearing claims array');
+                            }
+                            
+                            // Refresh UI to populate all fields INCLUDING claims
+                            this.refreshUI();
+                            
+                            // Now render claim sections AFTER refreshUI
+                            if (data.claims && data.claims.length > 0) {
+                                console.log(`Rendering exactly ${data.claims.length} claim sections`);
+                                this.renderClaimSections(data.claims);
+                            } else {
+                                // No claims found - show message
+                                const container = document.getElementById('claims-container');
+                                if (container) {
+                                    container.innerHTML = '<div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg"><p class="text-sm font-medium text-yellow-800">📋 NO CLAIMS FOUND IN PDF</p></div>';
+                                    console.log('No claims - showing message');
+                                }
+                            }
+                            
+                            // Calculate insurance gap after UI refresh
+                            if (data.policy_start_date && data.policy_end_date) {
+                                setTimeout(() => this.calcInsuranceGap(), 100);
+                            }
+                            
+                            // Verify fields populated after refreshUI
+                            setTimeout(() => {
+                                console.log('After refreshUI - Checking input values:');
+                                console.log('  License input:', document.querySelector('[data-key="licNumber"]')?.value);
+                                console.log('  Renewal input:', document.querySelector('[data-key="licRenewal"]')?.value);
+                                console.log('  Personal DOB input:', document.querySelector('[data-key="personalDob"]')?.value);
+                                console.log('  Driver DOB input:', document.querySelector('[data-key="drvDob"]')?.value);
+                                console.log('  Personal Name input:', document.querySelector('[data-key="personalName"]')?.value);
+                                console.log('  Cont Ins input:', document.querySelector('[data-key="drvContIns"]')?.value);
+                                console.log('  Insured Since input:', document.querySelector('[data-key="drvInsSince"]')?.value);
+                                console.log('  VIN input:', document.querySelector('[data-key="vin"]')?.value);
+                                console.log('  Year/Make input:', document.querySelector('[data-key="yearMake"]')?.value);
+                                console.log('  Issue Date input:', document.querySelector('[data-key="expIssueDate"]')?.value);
+                                console.log('  First Ins input:', document.querySelector('[data-key="expFirstIns"]')?.value);
+                                console.log('  Prev Expiry input:', document.querySelector('[data-key="expPrevExpiry"]')?.value);
+                            }, 100);
+                            
+                            // Don't call refreshUI again - already called above
+                            return; // Exit early to prevent duplicate refreshUI call
+                            
+                        } else if (type === 'mvr') {
+                            // MVR PDF: MVR Info section only
+                            if (data.name) {
+                                drv.personalName = data.name;
+                                drv.drvName = data.name;
+                            }
+                            if (data.dob) {
+                                drv.personalDob = data.dob;
+                                drv.mvrDob = data.dob;
+                            }
+                            if (data.license_number) {
+                                drv.licNumber = data.license_number;
+                                console.log('✅ Set License Number from MVR:', data.license_number);
+                            }
+                            if (data.expiry_date) {
+                                drv.mvrExpiry = data.expiry_date;
+                                console.log('✅ Set Expiry Date from MVR:', data.expiry_date);
+                            }
+                            if (data.issue_date) {
+                                drv.mvrIssue = data.issue_date;  // MVR Issue Date field
+                                drv.expIssueDate = data.issue_date;  // License Experience Issue Date field
+                                console.log('✅ Set Issue Date from MVR:', data.issue_date);
+                            }
+                            if (data.license_status) {
+                                drv.mvrStatus = data.license_status;  // Correct field name
+                                console.log('✅ Set License Status from MVR:', data.license_status);
+                            }
+                            if (data.demerit_points) {
+                                drv.mvrDemerits = data.demerit_points;  // Correct field name
+                                console.log('✅ Set Demerit Points from MVR:', data.demerit_points);
+                            }
+                            if (data.license_class) {
+                                drv.mvrClass = data.license_class;
+                                console.log('✅ Set License Class from MVR:', data.license_class);
+                            }
+                            if (data.conditions) {
+                                drv.mvrConditions = data.conditions;
+                                console.log('✅ Set Conditions from MVR:', data.conditions);
+                            }
+                            
+                            // Convictions
+                            if (data.convictions_count) {
+                                drv.mvrConvictions = data.convictions_count;
+                                console.log('✅ Set Conviction Count from MVR:', data.convictions_count);
+                            }
+                            if (data.convictions && data.convictions.length > 0) {
+                                // Get the last/most recent conviction
+                                const lastConviction = data.convictions[data.convictions.length - 1];
+                                drv.mvrConvictionDate = lastConviction.date;
+                                
+                                // Build description: list all convictions
+                                const convList = data.convictions.map((c, i) => `${i+1}. ${c.date}: ${c.description}`).join('\n');
+                                drv.mvrConvictionDesc = convList;
+                                console.log('✅ Set Convictions from MVR:', data.convictions.length, 'convictions');
+                            } else if (data.convictions_count === '0') {
+                                // No convictions
+                                drv.mvrConvictionDate = '';
+                                drv.mvrConvictionDesc = 'No convictions';
+                                console.log('✅ No convictions found in MVR');
+                            }
+                            
+                            // Refresh UI to show populated fields for MVR
+                            this.refreshUI();
+                        }
+                        
+                        // Note: refreshUI is called within each type block above
+                        
+                        // Log success message
+                        console.log(`✅ ${type.toUpperCase()} parsed successfully! Fields have been auto-filled.`);
+                    } else {
+                        console.error(`${type.toUpperCase()} parsing failed:`, result.error);
+                        console.warn(`⚠️ Could not parse ${type.toUpperCase()}. Please fill fields manually.`);
+                    }
+                    
+                } catch (error) {
+                    console.error(`❌ Error parsing ${type.toUpperCase()}:`, error);
+                    console.error(`Error parsing ${type.toUpperCase()} file. Please try again.`);
+                    // Restore UI on error
+                    this.updateFileUI(type, file.name);
+                }
+            },
+
+            updateFileUI: function(type, name) {
+                const div = document.getElementById(`container-${type}`);
+                const txt = document.getElementById(`text-${type}`);
+                const icon = document.getElementById(`icon-${type}`);
+                if(name) {
+                    div.classList.replace('border-slate-200', 'border-emerald-400');
+                    div.classList.add('bg-emerald-50');
+                    icon.classList.replace('text-slate-300', 'text-emerald-500');
+                    icon.className = 'fa-solid fa-circle-check text-emerald-500 text-lg mb-1 transition-colors';
+                    txt.innerText = name;
+                    txt.classList.add('text-emerald-700');
+                } else {
+                    txt.innerText = `Upload ${type.toUpperCase()}`;
+                    div.classList.replace('border-emerald-400', 'border-slate-200');
+                    div.classList.remove('bg-emerald-50');
+                    icon.className = `fa-solid ${type==='dash'?'fa-file-pdf':'fa-id-card'} text-slate-300 text-lg mb-1 transition-colors`;
+                    txt.classList.remove('text-emerald-700');
+                }
+            },
+
+            renderClaimSections: function(claims) {
+                const container = document.getElementById('claims-container');
+                if (!container) {
+                    console.error('claims-container not found');
+                    return;
+                }
+                
+                container.innerHTML = '';
+                const drv = this.drivers[this.currDrvIdx];
+                
+                // Handle no claims case
+                if (!claims || claims.length === 0) {
+                    container.innerHTML = '<div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg"><p class="text-sm font-medium text-yellow-800">📋 NO CLAIMS FOUND IN PDF</p></div>';
+                    console.log('No claims to render');
+                    drv.claims = [];  // Clear old claims
+                    return;
+                }
+                
+                // CLEAR old claims - this prevents showing too many sections
+                drv.claims = [];
+                
+                console.log(`📦 Rendering EXACTLY ${claims.length} claim section(s)`);
+                
+                claims.forEach((claim, index) => {
+                    // Store this claim in driver.claims array
+                    drv.claims.push(claim);
+                    console.log(`  → Claim #${index+1}:`, claim);
+                    
+                    const claimHTML = `
+                        <div class="bg-white rounded-xl shadow-soft border border-indigo-200 overflow-hidden relative p-6 hover:shadow-md transition-shadow hud__card mb-4" data-claim-index="${index}">
+                            <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                            <div class="absolute top-3 right-3 text-xs font-bold text-indigo-600">#${index + 1}</div>
+                            
+                            <!-- Top Row: Date & At Fault -->
+                            <div class="grid grid-cols-2 gap-6 mb-5">
+                                <div>
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Date of Loss</label>
+                                    <input type="text" data-claim-field="date" data-claim-index="${index}" data-mask="date" class="hud__input claim-input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-mono font-bold text-slate-800 pb-1" placeholder="MM/DD/YYYY">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">At-Fault</label>
+                                    <input type="text" data-claim-field="fault" data-claim-index="${index}" class="hud__input claim-input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-bold text-slate-800 pb-1" placeholder="Yes/No">
+                                </div>
+                            </div>
+
+                            <!-- Second Row: Company & Status -->
+                            <div class="grid grid-cols-2 gap-6 mb-5">
+                                <div>
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Insurance Company</label>
+                                    <input type="text" data-claim-field="company" data-claim-index="${index}" class="hud__input claim-input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-medium text-slate-800 pb-1" placeholder="Company name...">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Status</label>
+                                    <input type="text" data-claim-field="status" data-claim-index="${index}" class="hud__input claim-input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-bold text-slate-800 pb-1" placeholder="Active/Cancelled">
+                                </div>
+                            </div>
+
+                            <!-- Third Row: Description -->
+                            <div class="mb-5">
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Description</label>
+                                <input type="text" data-claim-field="description" data-claim-index="${index}" class="hud__input claim-input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-medium text-slate-800 pb-1" placeholder="Enter claim description...">
+                            </div>
+
+                            <!-- Bottom Row: Financials -->
+                            <div class="bg-slate-50 rounded-lg p-3 border border-slate-100 hud__financials">
+                                <div class="grid grid-cols-3 gap-4">
+                                    <div>
+                                        <label class="block text-[9px] font-bold text-slate-400 uppercase mb-1">Total Loss</label>
+                                        <div class="relative">
+                                            <span class="absolute left-0 top-0 text-slate-400 text-xs">$</span>
+                                            <input type="number" data-claim-field="loss" data-claim-index="${index}" class="hud__input claim-input w-full bg-transparent border-none p-0 pl-3 text-xs font-mono font-bold text-slate-700 focus:ring-0" placeholder="0.00">
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[9px] font-bold text-slate-400 uppercase mb-1">Total Expense</label>
+                                        <div class="relative">
+                                            <span class="absolute left-0 top-0 text-slate-400 text-xs">$</span>
+                                            <input type="number" data-claim-field="expense" data-claim-index="${index}" class="hud__input claim-input w-full bg-transparent border-none p-0 pl-3 text-xs font-mono font-bold text-slate-700 focus:ring-0" placeholder="0.00">
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[9px] font-bold text-indigo-600 uppercase mb-1">Sub Total</label>
+                                        <div class="relative">
+                                            <span class="absolute left-0 top-0 text-indigo-400 text-xs">$</span>
+                                            <input type="number" data-claim-field="total" data-claim-index="${index}" class="hud__input claim-input w-full bg-transparent border-none p-0 pl-3 text-xs font-mono font-bold text-indigo-700 focus:ring-0" placeholder="0.00">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    container.innerHTML += claimHTML;
+                });
+                
+                // Populate the newly created inputs with claim data
+                setTimeout(() => {
+                    claims.forEach((claim, index) => {
+                        const fields = ['date', 'fault', 'company', 'status', 'description', 'loss', 'expense', 'total'];
+                        fields.forEach(field => {
+                            const input = container.querySelector(`input[data-claim-index="${index}"][data-claim-field="${field}"]`);
+                            if (input && claim[field]) {
+                                input.value = claim[field];
+                            }
+                        });
+                    });
+                    console.log(`Rendered and populated ${claims.length} claim sections`);
+                }, 0);
+            },
+
+            // Licence Calculation Logic
+            calcExpDates: function() {
+                const drv = this.drivers[this.currDrvIdx];
+                const mvrExp = drv.mvrExpiry;
+                const mvrDob = drv.mvrDob;
+                
+                if (!mvrExp || !mvrDob || mvrExp.length !== 10 || mvrDob.length !== 10) {
+                    alert("Please complete MVR Info (Expiry & Birthdate) first.");
+                    return;
+                }
+                
+                const getMD = (s) => s.substring(0, 5);
+                if (getMD(mvrExp) !== getMD(mvrDob)) {
+                    alert("MVR Validation Failed: Expiry Date and Birthdate must have the same Month/Day.");
+                    return;
+                }
+
+                const issueStr = drv.expIssueDate;
+                const firstInsStr = drv.expFirstIns;
+                if (!issueStr || !firstInsStr || issueStr.length !== 10 || firstInsStr.length !== 10) {
+                    alert("Please enter valid dates for Issue Date and First Insurance.");
+                    return;
+                }
+
+                const p = (s) => new Date(s.split('/').pop(), s.split('/')[0]-1, s.split('/')[1]);
+                const dIssue = p(issueStr);
+                const dFirst = p(firstInsStr);
+                
+                const fmt = (d) => {
+                    let mm = (d.getMonth()+1).toString().padStart(2, '0');
+                    let dd = d.getDate().toString().padStart(2, '0');
+                    let yyyy = d.getFullYear();
+                    return `${mm}/${dd}/${yyyy}`;
+                };
+
+                const subRandM = (date, minM, maxM) => {
+                    const n = new Date(date);
+                    const m = Math.floor(Math.random() * (maxM - minM + 1)) + minM;
+                    n.setMonth(n.getMonth() - m);
+                    const jitter = Math.floor(Math.random() * 10) - 5; 
+                    n.setDate(n.getDate() + jitter);
+                    return n;
+                };
+
+                let g = subRandM(dFirst, 12, 13);
+                let g2 = subRandM(g, 23, 25);
+                let g1 = subRandM(g2, 12, 13);
+
+                if (g1 < dIssue) {
+                    g1 = new Date(dIssue);
+                }
+
+                drv.expG1Date = fmt(g1);
+                drv.expG2Date = fmt(g2);
+                drv.expGDate = fmt(g);
+
+                this.refreshUI();
+            },
+
+            // UI Helpers
+            updateLicenceGaps: function() {
+                const drv = this.drivers[this.currDrvIdx];
+                const setGap = (id, val) => { const el = document.getElementById(id); if(el) el.innerText = val; };
+                
+                const getDiffText = (d1Str, d2Str) => {
+                    if(!d1Str || !d2Str || d1Str.length<10 || d2Str.length<10) return "—";
+                    const d1 = new Date(d1Str);
+                    const d2 = new Date(d2Str);
+                    let diff = (d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
+                    diff = Math.abs(Math.round(diff));
+                    
+                    const yrs = Math.floor(diff / 12);
+                    const mos = diff % 12;
+                    if(yrs > 0 && mos > 0) return `${yrs}y ${mos}m`;
+                    if(yrs > 0) return `${yrs} yrs`;
+                    return `${mos} mos`;
+                };
+
+                setGap('gap-first-g', getDiffText(drv.expFirstIns, drv.expGDate));
+                setGap('gap-g-g2', getDiffText(drv.expGDate, drv.expG2Date));
+                setGap('gap-g2-g1', getDiffText(drv.expG2Date, drv.expG1Date));
+            },
+
+            calcInsuranceGap: function() {
+                const drv = this.drivers[this.currDrvIdx];
+                const startStr = drv.gapStart;
+                const endStr = drv.gapEnd;
+                
+                const outField = document.getElementById('gap-days-output');
+                if(!outField) return;
+
+                if (!startStr || !endStr || startStr.length !== 10 || endStr.length !== 10) {
+                    outField.value = "0 Days";
+                    return;
+                }
+
+                const dStart = new Date(startStr);
+                const dEnd = new Date(endStr);
+
+                if (isNaN(dStart) || isNaN(dEnd)) {
+                    outField.value = "Invalid Date";
+                    return;
+                }
+
+                const diffTime = dStart - dEnd;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                if (diffDays > 0) {
+                    outField.value = `${diffDays} Days Gap`;
+                    outField.classList.add('text-rose-600');
+                    outField.classList.remove('text-slate-700');
+                } else {
+                    outField.value = "0 Days"; 
+                    outField.classList.remove('text-rose-600');
+                    outField.classList.add('text-slate-700');
+                }
+            },
+
+            saveToDatabase: async function() {
+                const btn = document.querySelector('button[onclick="App.saveToDatabase()"]');
+                const originalText = btn.innerHTML;
+                
+                // Validate required fields
+                let valid = true;
+                this.drivers.forEach((d, i) => { if(!d.mainName) valid = false; });
+
+                if (!valid) {
+                    btn.className = "text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 px-4 py-3 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 whitespace-nowrap animate-pulse w-full";
+                    btn.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Missing Names`;
+                    setTimeout(() => {
+                        btn.className = "group w-full text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 px-4 py-3 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 transform active:scale-[0.98]";
+                        btn.innerHTML = originalText;
+                    }, 2000);
+                    return;
+                }
+
+                try {
+                    // Show saving state
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+                    
+                    // Prepare complete data structure
+                    const clientData = {
+                        id: this.drivers[0].personalEmail || Date.now().toString(), // Use email or timestamp as ID
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                        
+                        // All driver data
+                        drivers: this.drivers.map(drv => ({
+                            // Personal Information
+                            id: drv.id,
+                            mainName: drv.mainName,
+                            mainRel: drv.mainRel,
+                            personalName: drv.personalName,
+                            personalAddress: drv.personalAddress,
+                            personalDob: drv.personalDob,
+                            personalMobile: drv.personalMobile,
+                            personalEmail: drv.personalEmail,
+                            
+                            // Driver & Licensing
+                            licRenewal: drv.licRenewal,
+                            licNumber: drv.licNumber,
+                            
+                            // MVR Info
+                            mvrExpiry: drv.mvrExpiry,
+                            mvrDob: drv.mvrDob,
+                            mvrIssue: drv.mvrIssue,
+                            mvrStatus: drv.mvrStatus,
+                            mvrDemerits: drv.mvrDemerits,
+                            mvrClass: drv.mvrClass,
+                            mvrConditions: drv.mvrConditions,
+                            mvrConvictions: drv.mvrConvictions,
+                            mvrConvictionDate: drv.mvrConvictionDate,
+                            mvrConvictionDesc: drv.mvrConvictionDesc,
+                            
+                            // Driver Information
+                            drvName: drv.drvName,
+                            drvDob: drv.drvDob,
+                            drvContIns: drv.drvContIns,
+                            drvInsSince: drv.drvInsSince,
+                            
+                            // License Experience
+                            expIssueDate: drv.expIssueDate,
+                            expFirstIns: drv.expFirstIns,
+                            expGDate: drv.expGDate,
+                            expG2Date: drv.expG2Date,
+                            expG1Date: drv.expG1Date,
+                            
+                            // Gap Calculation
+                            gapStart: drv.gapStart,
+                            gapEnd: drv.gapEnd,
+                            
+                            // Files
+                            files: drv.files,
+                            
+                            // Vehicles
+                            vehicles: drv.vehicles,
+                            
+                            // Claims
+                            claims: drv.claims || []
+                        }))
+                    };
+                    
+                    console.log("💾 Saving complete client data:", clientData);
+                    
+                    // Send to backend
+                    const response = await fetch('http://localhost:5000/api/save-client', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(clientData)
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        console.log("✅ Client data saved successfully:", result);
+                        btn.className = "group w-full text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 px-4 py-3 rounded-lg shadow-md flex items-center justify-center gap-2";
+                        btn.innerHTML = '<i class="fa-solid fa-check"></i> Saved Successfully';
+                        setTimeout(() => {
+                            btn.disabled = false;
+                            btn.innerHTML = originalText;
+                            btn.className = "group w-full text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 px-4 py-3 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 transform active:scale-[0.98]";
+                        }, 2000);
+                    } else {
+                        throw new Error(result.error || 'Failed to save');
+                    }
+                    
+                } catch (error) {
+                    console.error("❌ Error saving client data:", error);
+                    btn.className = "group w-full text-xs font-bold text-white bg-rose-600 px-4 py-3 rounded-lg shadow-md flex items-center justify-center gap-2";
+                    btn.innerHTML = '<i class="fa-solid fa-exclamation-triangle"></i> Save Failed';
+                    setTimeout(() => {
+                        btn.disabled = false;
+                        btn.innerHTML = originalText;
+                        btn.className = "group w-full text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 px-4 py-3 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 transform active:scale-[0.98]";
+                    }, 2000);
+                }
+            },
+            
+            handleSearch: async function(val) {
+                const resultsDiv = document.getElementById('search-results');
+                console.log('🔍 Search triggered with value:', val);
+                
+                // If search is empty, just hide dropdown (don't restore yet - wait for blur)
+                if (!val || val.trim().length === 0) {
+                    console.log('⚠️ Search empty, hiding dropdown');
+                    resultsDiv.classList.add('hidden');
+                    return;
+                }
+                
+                try {
+                    console.log('📡 Fetching leads from backend...');
+                    // Fetch leads from backend
+                    const response = await fetch('http://localhost:5000/api/leads');
+                    console.log('📥 Response status:', response.status);
+                    
+                    const result = await response.json();
+                    console.log('📊 Result:', result);
+                    
+                    // Backend returns {count: X, data: [...]} not {success: true, data: [...]}
+                    if (result.data && Array.isArray(result.data)) {
+                        console.log(`✅ Got ${result.data.length} total leads from backend`);
+                        
+                        // Filter leads by name (case-insensitive, starts with)
+                        const searchTerm = val.toLowerCase().trim();
+                        const matches = result.data.filter(lead => 
+                            lead.name && lead.name.toLowerCase().startsWith(searchTerm)
+                        );
+                        
+                        console.log(`🎯 Found ${matches.length} matching leads`);
+                        
+                        if (matches.length > 0) {
+                            // Show dropdown with matches
+                            resultsDiv.innerHTML = matches.map((lead, index) => `
+                                <div class="search-result-item px-4 py-2.5 hover:bg-indigo-50 cursor-pointer border-b border-slate-100 last:border-0 transition-colors" 
+                                     data-name="${(lead.name || '').replace(/"/g, '&quot;')}"
+                                     data-phone="${(lead.phone || '').replace(/"/g, '&quot;')}"
+                                     data-email="${(lead.email || '').replace(/"/g, '&quot;')}">
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <div class="text-sm font-bold text-slate-800">${lead.name || 'No Name'}</div>
+                                            <div class="text-xs text-slate-500">${lead.email || 'No email'}</div>
+                                        </div>
+                                        <div class="text-xs font-mono text-slate-600">${lead.phone || ''}</div>
+                                    </div>
+                                </div>
+                            `).join('');
+                            
+                            // Attach click handlers after rendering
+                            setTimeout(() => {
+                                document.querySelectorAll('.search-result-item').forEach(item => {
+                                    item.addEventListener('click', () => {
+                                        const name = item.getAttribute('data-name');
+                                        const phone = item.getAttribute('data-phone');
+                                        const email = item.getAttribute('data-email');
+                                        App.selectLead(name, phone, email);
+                                    });
+                                });
+                            }, 0);
+                            
+                            resultsDiv.classList.remove('hidden');
+                            console.log('✅ Dropdown shown with results');
+                        } else {
+                            resultsDiv.innerHTML = '<div class="px-4 py-3 text-xs text-slate-500 text-center">No matching leads found</div>';
+                            resultsDiv.classList.remove('hidden');
+                            console.log('ℹ️ No matches, showing "no results" message');
+                        }
+                    } else {
+                        console.error('❌ Invalid response from backend:', result);
+                        resultsDiv.classList.add('hidden');
+                    }
+                } catch (error) {
+                    console.error('❌ Error searching leads:', error);
+                    resultsDiv.innerHTML = '<div class="px-4 py-3 text-xs text-rose-500 text-center">Error loading leads</div>';
+                    resultsDiv.classList.remove('hidden');
+                }
+            },
+            
+            handleSearchBlur: function() {
+                // Hide dropdown after a delay to allow clicks to register
+                setTimeout(() => {
+                    document.getElementById('search-results').classList.add('hidden');
+                }, 200);
+                
+                // If search box is empty when user leaves it, restore original lead
+                const searchInput = document.getElementById('client-search');
+                if (searchInput && (!searchInput.value || searchInput.value.trim().length === 0)) {
+                    console.log('🔄 Search left empty, restoring original lead');
+                    if (this.originalLead) {
+                        this.selectLead(this.originalLead.name, this.originalLead.phone, this.originalLead.email);
+                    }
+                }
+            },
+            
+            selectLead: function(name, phone, email) {
+                console.log('👤 Selecting lead:', {name, phone, email});
+                
+                // Populate search box with name
+                const searchInput = document.getElementById('client-search');
+                if (searchInput) {
+                    searchInput.value = name;
+                    console.log('✅ Search box updated with:', name);
+                }
+                
+                // Populate email and phone inputs
+                const drv = this.drivers[this.currDrvIdx];
+                drv.personalEmail = email || '';
+                drv.personalMobile = phone || '';
+                
+                // Force update the inputs
+                const emailInput = document.querySelector('[data-key="personalEmail"]');
+                const phoneInput = document.querySelector('[data-key="personalMobile"]');
+                
+                if (emailInput) {
+                    emailInput.value = email || '';
+                    console.log('✅ Email input updated with:', email);
+                }
+                if (phoneInput) {
+                    phoneInput.value = phone || '';
+                    console.log('✅ Phone input updated with:', phone);
+                }
+                
+                // Hide dropdown
+                document.getElementById('search-results').classList.add('hidden');
+                
+                console.log(`✅ Lead selected successfully!`);
+            }
+        };
+
+        window.addEventListener('DOMContentLoaded', () => App.init());
+    </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: auto-dash-lead
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 4 -b 0.0.0.0:$PORT backend.app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_SYSTEM_USER_ACCESS_TOKEN
+        sync: false
+      - key: FLASK_PORT
+        value: 5000

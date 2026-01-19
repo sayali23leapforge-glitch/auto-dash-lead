@@ -1,0 +1,1670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Meta Leads Dashboard</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Flatpickr for mm/dd/yyyy -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    
+    <!-- Google API Stubs (Placeholders for future implementation) -->
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client"></script>
+    
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        slate: {
+                            50: '#f8fafc', 100: '#f1f5f9', 200: '#e2e8f0', 300: '#cbd5e1',
+                            400: '#94a3b8', 500: '#64748b', 600: '#475569', 700: '#334155',
+                            800: '#1e293b', 900: '#0f172a',
+                        },
+                        indigo: {
+                             50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 300: '#a5b4fc',
+                            400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca',
+                            800: '#3730a3', 900: '#312e81',
+                        }
+                    },
+                    boxShadow: {
+                        'card': '0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02)',
+                        'subtle': '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { margin: 0; -webkit-tap-highlight-color: transparent; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        select { background-image: none; }
+
+        @keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        
+        .toast-enter { animation: slideDown 0.3s ease-out forwards; }
+        .bulk-bar-enter { animation: slideUp 0.3s ease-out forwards; }
+        
+        /* Modal Animation */
+        .modal { transition: opacity 0.25s ease; }
+        .modal-content { transition: transform 0.25s ease; }
+        .modal.hidden { opacity: 0; pointer-events: none; }
+        .modal.hidden .modal-content { transform: scale(0.95); }
+
+        /* Flatpickr Z-Index fix for Modal */
+        .flatpickr-calendar { z-index: 9999 !important; }
+
+        @media (max-width: 1024px) {
+            .responsive-table thead { display: none; }
+            .responsive-table tbody tr { 
+                display: flex; flex-direction: column; background: white;
+                border: 1px solid #e2e8f0; border-radius: 0.75rem;
+                margin-bottom: 1rem; padding: 1rem;
+                box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            }
+            .responsive-table td { display: block; padding: 0.5rem 0; width: 100%; border: none; }
+            .mobile-label { display: block; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: #94a3b8; margin-bottom: 0.25rem; }
+            .checkbox-col { display: none; } /* Hide checkboxes on mobile for simplicity */
+        }
+        @media (min-width: 1025px) { .mobile-label { display: none; } }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans text-slate-600 antialiased selection:bg-indigo-100 selection:text-indigo-700 pb-20 md:pb-0">
+
+    <div id="toast-container" class="fixed top-4 left-0 right-0 z-[60] flex justify-center pointer-events-none"></div>
+
+    <!-- Bulk Action Bar -->
+    <div id="bulk-action-bar" class="hidden fixed bottom-6 left-1/2 transform -translate-x-1/2 z-40 bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center gap-6 bulk-bar-enter">
+        <div class="text-xs font-bold"><span id="selected-count">0</span> Selected</div>
+        <div class="h-4 w-px bg-slate-700"></div>
+        <div class="flex gap-2">
+            <button class="hover:text-indigo-300 transition-colors text-xs font-bold uppercase tracking-wide flex items-center gap-2">
+                <i class="fa-solid fa-check"></i> Mark Contacted
+            </button>
+            <button class="hover:text-rose-300 transition-colors text-xs font-bold uppercase tracking-wide flex items-center gap-2 ml-4">
+                <i class="fa-solid fa-trash"></i> Delete
+            </button>
+        </div>
+        <button id="close-bulk-bar" class="ml-2 text-slate-500 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <!-- Add/Edit Lead Modal -->
+    <div id="lead-modal" class="modal hidden fixed inset-0 z-[70] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="modal-content bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden transform scale-100">
+            <div class="bg-slate-50 px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                <h3 id="modal-title" class="text-lg font-bold text-slate-800"><i class="fa-solid fa-user-plus text-indigo-500 mr-2"></i> Add Manual Lead</h3>
+                <button type="button" class="js-close-modal text-slate-400 hover:text-slate-600 transition-colors">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            
+            <form id="lead-form" class="p-6 space-y-4">
+                <input type="hidden" name="lead_id" id="lead_id_input">
+                
+                <!-- Lead Type Selection -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-2">Lead Type</label>
+                    <div class="flex p-1 bg-slate-100 rounded-lg">
+                        <label class="flex-1 text-center cursor-pointer">
+                            <input type="radio" name="lead_type" value="general" class="peer hidden" checked>
+                            <span class="block py-2 text-xs font-bold text-slate-500 rounded-md peer-checked:bg-white peer-checked:text-indigo-600 peer-checked:shadow-sm transition-all">General</span>
+                        </label>
+                        <label class="flex-1 text-center cursor-pointer">
+                            <input type="radio" name="lead_type" value="life" class="peer hidden">
+                            <span class="block py-2 text-xs font-bold text-slate-500 rounded-md peer-checked:bg-white peer-checked:text-indigo-600 peer-checked:shadow-sm transition-all">Life/CI</span>
+                        </label>
+                        <label class="flex-1 text-center cursor-pointer">
+                            <input type="radio" name="lead_type" value="travel" class="peer hidden">
+                            <span class="block py-2 text-xs font-bold text-slate-500 rounded-md peer-checked:bg-white peer-checked:text-indigo-600 peer-checked:shadow-sm transition-all">Travel</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1.5">Full Name</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><i class="fa-regular fa-user"></i></div>
+                        <input type="text" name="name" required class="w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-300" placeholder="e.g. John Doe">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1.5">Phone Number</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><i class="fa-solid fa-phone"></i></div>
+                            <input type="tel" name="phone" required class="w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-300" placeholder="(555) 000-0000">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1.5">Email Address</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><i class="fa-regular fa-envelope"></i></div>
+                            <input type="email" name="email" required class="w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-300" placeholder="john@example.com">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dynamic Second Row (Dates/Type) -->
+                <div id="modal-date-type-container">
+                    <!-- Injected by JS: Either Renewal Date OR Policy Type + Term -->
+                </div>
+                
+                <!-- Dynamic Fields based on Type (Calc) -->
+                <div id="modal-dynamic-fields" class="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <!-- JS will inject generic/life/travel specific calculator fields here -->
+                    <p class="text-xs text-slate-400 text-center">Select a lead type to see details.</p>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1.5">Notes (Optional)</label>
+                    <textarea name="notes" rows="3" class="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-300 resize-none" placeholder="Add any manual notes here..."></textarea>
+                </div>
+
+                <div class="pt-2 flex gap-3">
+                    <button type="button" class="js-close-modal flex-none w-24 h-10 rounded-lg border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">Cancel</button>
+                    <button type="submit" id="modal-submit-btn" class="flex-1 h-10 rounded-lg bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 shadow-md shadow-indigo-200 transition-all flex items-center justify-center gap-2">
+                        <span>Next: Policy Details</span> <i class="fa-solid fa-chevron-right text-xs"></i>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Reminder Modal -->
+    <div id="reminder-modal" class="modal hidden fixed inset-0 z-[80] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="modal-content bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden transform scale-100">
+            <div class="bg-amber-50 px-6 py-4 border-b border-amber-100 flex justify-between items-center">
+                <h3 class="text-lg font-bold text-amber-900"><i class="fa-solid fa-bell text-amber-500 mr-2"></i> Set Reminder</h3>
+                <button type="button" class="js-close-reminder text-amber-400 hover:text-amber-600 transition-colors">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            
+            <form id="reminder-form" class="p-6 space-y-4">
+                <input type="hidden" name="reminder_lead_id" id="reminder_lead_id">
+                
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1.5">When?</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><i class="fa-regular fa-clock"></i></div>
+                        <input type="text" id="reminder-time" required class="time-picker w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all cursor-pointer" placeholder="Select date & time...">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1.5">What?</label>
+                    <textarea id="reminder-note" rows="2" class="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all placeholder:text-slate-300 resize-none" placeholder="e.g. Call back for quote"></textarea>
+                </div>
+
+                <div class="pt-2 flex gap-3">
+                    <button type="button" class="js-close-reminder flex-none w-24 h-10 rounded-lg border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">Cancel</button>
+                    <button type="submit" class="flex-1 h-10 rounded-lg bg-amber-500 text-white font-semibold text-sm hover:bg-amber-600 shadow-md shadow-amber-200 transition-all">Set Reminder</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <div class="bg-white border-b border-slate-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span class="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-sm shadow-md shadow-indigo-200 flex-shrink-0">
+                    <i class="fa-brands fa-meta"></i>
+                </span>
+                <div>
+                    <h1 class="text-sm font-bold text-slate-800 leading-tight">META LEADS MANAGER</h1>
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Multi-Line Dashboard</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="h-8 w-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-bold border border-indigo-200">JD</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-8">
+
+        <!-- Performance Section -->
+        <section class="mb-8">
+            <div class="flex justify-between items-center mb-5">
+                <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-chart-pie text-slate-400"></i> Performance Snapshot
+                </h2>
+                <!-- Refactored Date Range Picker with Shortcuts -->
+                <div class="hidden md:flex items-center bg-white border border-slate-200 rounded-lg p-1 shadow-sm relative">
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2">Date Range:</span>
+                    <div class="relative flex items-center">
+                        <i class="fa-regular fa-calendar text-slate-400 text-[10px] absolute left-2 pointer-events-none"></i>
+                        <input type="text" id="dashboard-date-range" class="h-7 w-48 bg-slate-50 border-none text-slate-700 text-xs font-bold rounded focus:ring-0 cursor-pointer pl-6" placeholder="Select range...">
+                    </div>
+                    <div class="relative ml-1 border-l border-slate-100 pl-1">
+                        <button id="date-range-menu-btn" class="h-7 w-7 flex items-center justify-center rounded hover:bg-slate-100 text-slate-400 hover:text-indigo-600 transition-colors">
+                            <i class="fa-solid fa-caret-down text-xs"></i>
+                        </button>
+                        <!-- Dropdown -->
+                        <div id="date-range-menu" class="hidden absolute right-0 top-full mt-2 w-32 bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden py-1">
+                            <button class="date-shortcut w-full text-left px-3 py-2 text-[10px] font-bold text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors" data-range="today">Today</button>
+                            <button class="date-shortcut w-full text-left px-3 py-2 text-[10px] font-bold text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors" data-range="yesterday">Yesterday</button>
+                            <button class="date-shortcut w-full text-left px-3 py-2 text-[10px] font-bold text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors" data-range="last7">Last 7 Days</button>
+                            <button class="date-shortcut w-full text-left px-3 py-2 text-[10px] font-bold text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors" data-range="thisMonth">This Month</button>
+                            <button class="date-shortcut w-full text-left px-3 py-2 text-[10px] font-bold text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors" data-range="lastMonth">Last Month</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
+                 <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-card hover:border-indigo-200 transition-all group">
+                    <div class="flex justify-between items-start mb-2">
+                        <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-sm"><i class="fa-solid fa-users-viewfinder"></i></div>
+                        <span class="text-[10px] font-bold text-slate-400 uppercase bg-slate-50 px-2 py-0.5 rounded-full border border-slate-100">Total</span>
+                    </div>
+                    <div class="text-2xl font-bold text-slate-800" id="stat-new">0</div>
+                    <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-1">New Leads</div>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-card hover:border-indigo-200 transition-all group">
+                    <div class="flex justify-between items-start mb-2">
+                        <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-sm"><i class="fa-solid fa-headset"></i></div>
+                    </div>
+                    <div class="text-2xl font-bold text-slate-800" id="stat-contacted">0</div>
+                    <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-1">Contacted</div>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-card hover:border-indigo-200 transition-all group">
+                    <div class="flex justify-between items-start mb-2">
+                        <div class="w-8 h-8 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center text-sm"><i class="fa-solid fa-paper-plane"></i></div>
+                    </div>
+                    <div class="text-2xl font-bold text-slate-800" id="stat-quotes">0</div>
+                    <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-1">Quotes Sent</div>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-card hover:border-indigo-200 transition-all group">
+                    <div class="flex justify-between items-start mb-2">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm"><i class="fa-solid fa-trophy"></i></div>
+                    </div>
+                    <div class="text-2xl font-bold text-slate-800" id="stat-closed">0</div>
+                    <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-1">Closed Won</div>
+                </div>
+                <div class="col-span-2 md:col-span-1 bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-lg shadow-slate-900/20 group relative overflow-hidden">
+                    <div class="absolute top-0 right-0 p-3 opacity-10 text-white text-5xl transform translate-x-2 -translate-y-2"><i class="fa-solid fa-dollar-sign"></i></div>
+                    <div class="flex justify-between items-start mb-2 relative z-10">
+                        <div class="w-8 h-8 rounded-lg bg-slate-700 text-emerald-400 flex items-center justify-center text-sm border border-slate-600"><i class="fa-solid fa-sack-dollar"></i></div>
+                    </div>
+                    <div class="text-2xl font-bold text-white relative z-10" id="stat-premium">$0</div>
+                    <div class="text-xs font-semibold text-slate-400 uppercase tracking-wide mt-1 relative z-10">Prem. Sold</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Leads Table Section -->
+        <section>
+            <!-- Tabs -->
+            <div class="flex items-center gap-1 mb-6 border-b border-slate-200 w-full overflow-x-auto no-scrollbar">
+                <button class="tab-btn px-4 py-2 text-sm font-bold text-indigo-600 border-b-2 border-indigo-600 transition-colors whitespace-nowrap" data-tab="all">
+                    All Leads
+                </button>
+                <button class="tab-btn px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 border-b-2 border-transparent transition-colors whitespace-nowrap" data-tab="general">
+                    <i class="fa-solid fa-car text-xs mr-1.5 opacity-70"></i> General
+                </button>
+                <button class="tab-btn px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 border-b-2 border-transparent transition-colors whitespace-nowrap" data-tab="life">
+                    <i class="fa-solid fa-heart-pulse text-xs mr-1.5 opacity-70"></i> Life & CI
+                </button>
+                <button class="tab-btn px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 border-b-2 border-transparent transition-colors whitespace-nowrap" data-tab="travel">
+                    <i class="fa-solid fa-plane text-xs mr-1.5 opacity-70"></i> Travel
+                </button>
+            </div>
+
+            <div class="flex flex-col md:flex-row justify-between items-end mb-4 gap-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <i class="fa-brands fa-meta text-blue-600"></i> Lead Feed
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-1">Real-time incoming leads via Meta Ads API</p>
+                </div>
+                
+                <!-- Search & Filters -->
+                <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                    <div class="relative flex-grow md:flex-grow-0">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><i class="fa-solid fa-magnifying-glass text-xs"></i></div>
+                        <input type="text" id="lead-search" placeholder="Search leads..." class="h-9 pl-9 pr-4 bg-white border border-slate-200 text-slate-600 text-xs font-medium rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 w-full md:w-48">
+                    </div>
+                    
+                    <div class="relative">
+                        <select id="status-filter" class="h-9 pl-3 pr-8 bg-white border border-slate-200 text-slate-600 text-xs font-medium rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 appearance-none cursor-pointer min-w-[120px]">
+                            <option value="all">All Statuses</option>
+                            <option value="New Lead">New Lead</option>
+                            <option value="Contacted">Contacted</option>
+                            <option value="Quote Sent">Quote Sent</option>
+                            <option value="Closed Won">Closed Won</option>
+                        </select>
+                        <div class="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-slate-400"><i class="fa-solid fa-chevron-down text-[10px]"></i></div>
+                    </div>
+
+                    <button class="js-open-modal h-9 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-indigo-200 flex items-center gap-2 whitespace-nowrap">
+                        <i class="fa-solid fa-plus"></i> <span class="hidden sm:inline">Add Lead</span>
+                    </button>
+                    <button id="sync-meta-btn" class="h-9 w-9 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600 rounded-lg text-xs font-bold transition-all shadow-subtle flex items-center justify-center">
+                        <i class="fa-solid fa-rotate"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="md:bg-white md:border md:border-slate-200 md:rounded-xl md:shadow-card md:overflow-hidden">
+                <table class="w-full text-left border-collapse responsive-table" id="leads-table">
+                    <thead class="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                            <th class="p-3 w-10 text-center checkbox-col">
+                                <input type="checkbox" id="select-all" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+                            </th>
+                            <th class="p-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-48">Lead Identity</th>
+                            <th class="p-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-44">Contact Info</th>
+                            <th class="p-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-36">Status</th>
+                            <th class="p-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider min-w-[180px]" id="header-calculator">Policy Details</th>
+                            <th class="p-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-32" id="header-date-type">Renewal Date</th>
+                            <th class="p-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-36 bg-indigo-50/50">Meta Signal</th>
+                            <th class="p-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right w-32">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="md:divide-y md:divide-slate-50" id="table-body">
+                        <!-- Rows rendered by JS -->
+                    </tbody>
+                </table>
+                <div id="no-results" class="hidden p-8 text-center text-slate-400 text-sm">
+                    <i class="fa-solid fa-filter-circle-xmark text-2xl mb-2 opacity-50"></i>
+                    <p>No leads found matching your criteria.</p>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Template -->
+    <template id="row-template">
+        <tr class="group hover:bg-indigo-50/30 transition-colors" data-id="">
+            <td class="p-2 md:p-3 align-top md:border-none border-b border-dashed border-slate-100 checkbox-col text-center">
+                <input type="checkbox" class="lead-checkbox rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer mt-1.5">
+            </td>
+            <td class="p-2 md:p-3 align-top md:border-none border-b border-dashed border-slate-100 pb-3">
+                <div class="flex justify-between items-start md:block">
+                    <div>
+                        <div class="flex items-center gap-2">
+                             <span class="type-icon w-5 h-5 rounded flex items-center justify-center text-[10px] bg-slate-100 text-slate-400 border border-slate-200"></span>
+                             <div class="text-sm font-bold text-slate-800 lead-name">Name</div>
+                        </div>
+                        <div class="lead-id-badge text-[10px] font-mono mt-1 px-1.5 py-0.5 rounded border w-fit ml-7">ID</div>
+                        <div class="mt-1 ml-7">
+                            <div class="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 border border-slate-200">
+                                <i class="fa-regular fa-clock text-[9px]"></i> <span class="text-[10px] font-bold lead-age">--</span>
+                            </div>
+                        </div>
+                        <div class="text-[10px] text-slate-400 mt-1 italic hidden lead-notes-preview ml-7"><i class="fa-regular fa-note-sticky mr-1"></i> <span class="notes-text"></span></div>
+                    </div>
+                </div>
+            </td>
+
+            <td class="p-2 md:p-3 align-top">
+                <div class="space-y-1.5">
+                    <div class="flex items-center justify-between group/phone-row pr-2">
+                        <a href="#" class="lead-phone-link flex items-center gap-2 text-xs text-slate-600 hover:text-indigo-600 hover:underline transition-colors group/phone truncate">
+                            <i class="fa-solid fa-phone text-slate-300 w-3 group-hover/phone:text-indigo-500"></i> 
+                            <span class="lead-phone font-medium"></span>
+                        </a>
+                        <button class="action-save-google w-6 h-6 rounded flex items-center justify-center bg-white border border-slate-200 text-slate-300 hover:text-blue-500 hover:border-blue-200 transition-all shadow-sm flex-shrink-0" title="Save to Google Contacts">
+                            <i class="fa-solid fa-user-plus text-[10px] pointer-events-none"></i>
+                        </button>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs text-slate-600 truncate"><i class="fa-solid fa-envelope text-slate-300 w-3"></i> <span class="lead-email"></span></div>
+                </div>
+            </td>
+
+            <td class="p-2 md:p-3 align-top">
+                <span class="mobile-label">Status</span>
+                <div class="relative">
+                    <select class="status-select w-full h-8 pl-2 pr-7 bg-white border border-slate-200 text-slate-700 text-[11px] font-semibold rounded-lg focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 appearance-none cursor-pointer">
+                        <option value="New Lead">New Lead</option>
+                        <option value="Contacted">Contacted</option>
+                        <option value="Quote Sent">Quote Sent</option>
+                        <option value="In Followup">In Followup</option>
+                        <option value="No Response">No Response</option>
+                        <option value="Closed Won">Closed Won</option>
+                        <option value="Closed Lost">Closed Lost</option>
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400"><i class="fa-solid fa-chevron-down text-[10px]"></i></div>
+                </div>
+            </td>
+
+            <td class="p-2 md:p-3 align-top dynamic-cell">
+                <!-- Content Injected via JS -->
+            </td>
+
+            <td class="p-2 md:p-3 align-top date-type-cell">
+               <!-- Content Injected via JS: Renewal Date OR Insurance Type -->
+            </td>
+
+            <td class="p-2 md:p-3 align-top bg-indigo-50/20 md:bg-indigo-50/30 border-l border-r border-indigo-100/50">
+                <span class="mobile-label">Meta Signal Control</span>
+                
+                <div class="flex justify-center mb-2">
+                    <div class="inline-flex bg-white p-0.5 rounded-lg border border-slate-200 shadow-sm">
+                        <button class="action-signal-green w-9 py-1 rounded-md text-[9px] font-bold transition-all text-slate-400 hover:text-emerald-600">
+                            <i class="fa-solid fa-check pointer-events-none"></i>
+                        </button>
+                        <div class="w-px bg-slate-200 my-0.5"></div>
+                        <button class="action-signal-red w-9 py-1 rounded-md text-[9px] font-bold transition-all text-slate-400 hover:text-rose-600">
+                            <i class="fa-solid fa-xmark pointer-events-none"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <button class="action-sync w-full h-7 bg-blue-600 hover:bg-blue-700 text-white rounded text-[9px] font-bold shadow-sm transition-all flex items-center justify-center gap-1">
+                    <i class="fa-brands fa-meta pointer-events-none"></i> Sync
+                </button>
+
+                <div class="sync-timestamp text-[9px] text-slate-400 text-center mt-1.5 font-mono opacity-0 transition-opacity whitespace-nowrap leading-tight">
+                    Pending
+                </div>
+            </td>
+
+            <td class="p-2 md:p-3 align-top md:text-right">
+                <div class="flex flex-col gap-2 items-end">
+                    <button class="action-process h-7 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[10px] font-bold transition-all shadow-md flex items-center gap-2 whitespace-nowrap w-full md:w-auto justify-center">
+                        Process <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                    <div class="flex gap-1 justify-end w-full">
+                        <button class="action-reminder w-7 h-7 bg-white border border-slate-200 hover:border-amber-300 hover:text-amber-500 text-slate-400 rounded-lg text-xs shadow-sm transition-all flex items-center justify-center" title="Set Reminder">
+                            <i class="fa-regular fa-bell pointer-events-none"></i>
+                        </button>
+                        <button class="action-edit w-7 h-7 bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 text-slate-400 rounded-lg text-xs shadow-sm transition-all flex items-center justify-center" title="Edit Lead">
+                            <i class="fa-solid fa-pen pointer-events-none"></i>
+                        </button>
+                        <button class="action-delete w-7 h-7 bg-white border border-slate-200 hover:border-rose-300 hover:text-rose-600 text-slate-400 rounded-lg text-xs shadow-sm transition-all flex items-center justify-center" title="Delete Lead">
+                            <i class="fa-solid fa-trash pointer-events-none"></i>
+                        </button>
+                    </div>
+                </div>
+            </td>
+        </tr>
+    </template>
+
+    <script>
+        // ========== BACKEND CONFIG ==========
+        const BACKEND_URL = 'http://localhost:5000';
+        
+        // ========== SUPABASE SETUP ==========
+        const SUPABASE_URL = 'https://iollfvjduazbmccxtsdn.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvbGxmdmpkdWF6Ym1jY3h0c2RuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1NTIzNzEsImV4cCI6MjA4NDEyODM3MX0.d_k31U0zY5bMWx_fTlJGLD4AjVU-FAu6Xkk7AOnpTUk';
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        
+        // ========== CONSTANTS & CONFIGURATION ==========
+        const CONFIG = {
+            TYPES: {
+                GENERAL: 'general',
+                LIFE: 'life',
+                TRAVEL: 'travel'
+            },
+            STATUS: {
+                NEW: 'New Lead',
+                CONTACTED: 'Contacted',
+                QUOTE: 'Quote Sent',
+                WON: 'Closed Won'
+            },
+            CLASSES: {
+                ICON_GENERAL: 'bg-blue-50 border-blue-100 text-blue-500',
+                ICON_LIFE: 'bg-rose-50 border-rose-100 text-rose-500',
+                ICON_CI: 'bg-purple-50 border-purple-100 text-purple-500',
+                ICON_TRAVEL: 'bg-amber-50 border-amber-100 text-amber-500',
+                REMINDER_ACTIVE: ['text-amber-600', 'bg-amber-100', 'border-amber-200', 'ring-1', 'ring-amber-200'],
+                REMINDER_INACTIVE: ['text-slate-400', 'bg-white', 'border-slate-200']
+            },
+            DATE_PICKER_OPTS: {
+                general: { dateFormat: "m/d/Y", allowInput: true },
+                range: { mode: "range", dateFormat: "M d, Y", showMonths: 2 },
+                time: { enableTime: true, dateFormat: "m/d/Y h:i K", minDate: "today" }
+            }
+        };
+
+        // No mock data - Real data from Meta API via backend
+
+        /**
+         * DashboardApp Class
+         */
+        class DashboardApp {
+            constructor() {
+                // Initial State
+                this.state = {
+                    activeTab: 'all',
+                    leads: [], // Will be populated from backend
+                    filterStatus: 'all',
+                    searchTerm: '',
+                    selectedIds: new Set(),
+                    loading: true
+                };
+                
+                this.datePickerInstance = null; // Store main dashboard picker instance
+
+                // Cache DOM Elements
+                this.dom = {
+                    tbody: document.getElementById('table-body'),
+                    template: document.getElementById('row-template'),
+                    modal: document.getElementById('lead-modal'),
+                    form: document.getElementById('lead-form'),
+                    reminderModal: document.getElementById('reminder-modal'),
+                    reminderForm: document.getElementById('reminder-form'),
+                    closeReminderBtns: document.querySelectorAll('.js-close-reminder'),
+                    
+                    modalTitle: document.getElementById('modal-title'),
+                    modalSubmitBtn: document.getElementById('modal-submit-btn'),
+                    modalDynamicFields: document.getElementById('modal-dynamic-fields'),
+                    modalDateTypeContainer: document.getElementById('modal-date-type-container'),
+                    toastContainer: document.getElementById('toast-container'),
+                    closeModalBtns: document.querySelectorAll('.js-close-modal'),
+                    openModalBtn: document.querySelector('.js-open-modal'),
+                    searchInput: document.getElementById('lead-search'),
+                    statusFilter: document.getElementById('status-filter'),
+                    noResults: document.getElementById('no-results'),
+                    selectAllCheckbox: document.getElementById('select-all'),
+                    bulkActionBar: document.getElementById('bulk-action-bar'),
+                    selectedCount: document.getElementById('selected-count'),
+                    closeBulkBar: document.getElementById('close-bulk-bar'),
+                    tabBtns: document.querySelectorAll('.tab-btn'),
+                    headerCalculator: document.getElementById('header-calculator'),
+                    headerDateType: document.getElementById('header-date-type'),
+                    
+                    // Stats Elements
+                    statNew: document.getElementById('stat-new'),
+                    statContacted: document.getElementById('stat-contacted'),
+                    statQuotes: document.getElementById('stat-quotes'),
+                    statClosed: document.getElementById('stat-closed'),
+                    statPremium: document.getElementById('stat-premium')
+                };
+
+                this.init();
+            }
+
+            async init() {
+                console.log('🚀 Dashboard init() started');
+                this.updateModalFields(CONFIG.TYPES.GENERAL); // Init modal with default fields
+                console.log('📞 Calling loadLeadsFromBackend...');
+                await this.loadLeadsFromBackend(); // Load real data from backend
+                console.log('✅ loadLeadsFromBackend completed');
+                console.log('📊 Current leads count:', this.state.leads.length);
+                console.log(`✅ Loaded ${this.state.leads.length} leads successfully`);
+                this.renderAll();
+                this.updateStats();
+                this.bindEvents();
+                this.initDatePickers(); // Init global pickers like view date
+                this.setupDateShortcuts(); // Init date shortcuts
+                this.startAutoRefresh(); // Start polling for new leads
+                console.log('✅ Dashboard init() completed');
+            }
+
+            startAutoRefresh() {
+                // Poll for new leads every 30 seconds
+                setInterval(async () => {
+                    console.log('🔄 Auto-checking for new leads...');
+                    await this.checkForNewLeads();
+                }, 30000); // 30 seconds
+            }
+
+            async checkForNewLeads() {
+                try {
+                    const response = await fetch(`${BACKEND_URL}/api/leads`, {
+                        method: 'GET',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    const result = await response.json();
+                    const freshLeads = result.data || [];
+                    
+                    // Find new leads by comparing IDs
+                    const existingIds = new Set(this.state.leads.map(l => l.id));
+                    const newLeads = freshLeads.filter(l => !existingIds.has(l.id));
+                    
+                    if (newLeads.length > 0) {
+                        console.log(`✨ Found ${newLeads.length} new leads!`);
+                        
+                        // Add new leads to the TOP of the list
+                        this.state.leads = [...newLeads, ...this.state.leads];
+                        
+                        // Re-render and update stats
+                        this.renderAll();
+                        this.updateStats();
+                        
+                        // Show notification
+                        this.showToast(`${newLeads.length} new lead(s) from Facebook!`, 'success');
+                    }
+                } catch (error) {
+                    console.error('❌ Auto-refresh error:', error);
+                }
+            }
+
+            async loadLeadsFromBackend() {
+                // Fetch leads from backend
+                console.log('🔍 Fetching from:', `${BACKEND_URL}/api/leads`);
+                console.log('⏳ This may take 30-60 seconds to fetch from Facebook...');
+                this.showToast('Loading leads from Facebook...', 'info');
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
+                    
+                    const response = await fetch(`${BACKEND_URL}/api/leads`, {
+                        method: 'GET',
+                        headers: { 'Content-Type': 'application/json' },
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+                    
+                    console.log('📡 Response status:', response.status);
+                    const result = await response.json();
+                    console.log('📦 Result:', result);
+                    this.state.leads = result.data || [];
+                    this.state.loading = false;
+                    console.log('✅ Loaded', this.state.leads.length, 'leads');
+                    this.showToast(`Loaded ${this.state.leads.length} leads from Facebook!`, 'success');
+                    this.renderAll(); // Render the leads
+                } catch (error) {
+                    console.error('❌ Error loading leads:', error);
+                    this.showToast('Failed to load leads from server', 'error');
+                    this.state.loading = false;
+                }
+            }
+
+            async syncLeadsWithMeta() {
+                // Sync latest leads from Meta API
+                try {
+                    const response = await fetch(`${BACKEND_URL}/api/leads/sync`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    const result = await response.json();
+                    if (result.success) {
+                        await this.loadLeadsFromBackend();
+                        this.renderAll();
+                        this.updateStats();
+                        this.showToast(result.message, 'success');
+                    }
+                } catch (error) {
+                    console.error('Error syncing leads:', error);
+                    this.showToast('Failed to sync leads from Meta', 'error');
+                }
+            }
+
+            initDatePickers() {
+                // Initialize Flatpickr on all elements with class 'date-picker'
+                setTimeout(() => {
+                    if (window.flatpickr) {
+                        // General Date Pickers
+                        flatpickr(".date-picker", CONFIG.DATE_PICKER_OPTS.general);
+                        
+                        // Dashboard Range Picker (New) - Use current month as default
+                        const today = new Date();
+                        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+                        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                        
+                        this.datePickerInstance = flatpickr("#dashboard-date-range", {
+                            ...CONFIG.DATE_PICKER_OPTS.range,
+                            defaultDate: [firstDay, lastDay],
+                            onChange: (selectedDates, dateStr) => {
+                                // Logic to filter stats could go here
+                                console.log("Range selected:", dateStr);
+                            }
+                        });
+                        
+                        // Reminder Time Picker
+                        flatpickr(".time-picker", CONFIG.DATE_PICKER_OPTS.time);
+                    }
+                }, 50);
+            }
+            
+            setupDateShortcuts() {
+                const menuBtn = document.getElementById('date-range-menu-btn');
+                const menu = document.getElementById('date-range-menu');
+                const shortcuts = document.querySelectorAll('.date-shortcut');
+
+                if(!menuBtn || !menu) return;
+
+                // Toggle Menu
+                menuBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    menu.classList.toggle('hidden');
+                });
+
+                // Close on click outside
+                document.addEventListener('click', (e) => {
+                    if (!menu.contains(e.target) && !menuBtn.contains(e.target)) {
+                        menu.classList.add('hidden');
+                    }
+                });
+
+                // Handle Shortcuts
+                shortcuts.forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const range = e.target.dataset.range;
+                        const today = new Date();
+                        let start, end;
+
+                        switch(range) {
+                            case 'today':
+                                start = new Date();
+                                end = new Date();
+                                break;
+                            case 'yesterday':
+                                start = new Date();
+                                start.setDate(today.getDate() - 1);
+                                end = new Date(start);
+                                break;
+                            case 'last7':
+                                end = new Date();
+                                start = new Date();
+                                start.setDate(today.getDate() - 6);
+                                break;
+                            case 'thisMonth':
+                                start = new Date(today.getFullYear(), today.getMonth(), 1);
+                                end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                                break;
+                            case 'lastMonth':
+                                start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+                                end = new Date(today.getFullYear(), today.getMonth(), 0);
+                                break;
+                        }
+
+                        if (this.datePickerInstance && start && end) {
+                            this.datePickerInstance.setDate([start, end], true); // true triggers onChange
+                        }
+                        menu.classList.add('hidden');
+                    });
+                });
+            }
+
+            bindEvents() {
+                // Tab Switching
+                this.dom.tabBtns.forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        this.state.activeTab = btn.dataset.tab;
+                        this.updateTabsUI();
+                        this.renderAll();
+                        this.updateStats();
+                    });
+                });
+
+                // Table Events (Delegation)
+                this.dom.tbody.addEventListener('click', (e) => this.handleTableClick(e));
+                this.dom.tbody.addEventListener('input', (e) => this.handleTableInput(e));
+                this.dom.tbody.addEventListener('change', (e) => this.handleCheckboxChange(e));
+
+                // Modal Events
+                this.dom.openModalBtn.addEventListener('click', () => this.openModal());
+                this.dom.closeModalBtns.forEach(btn => btn.addEventListener('click', () => this.closeModal()));
+                this.dom.form.addEventListener('submit', (e) => this.handleFormSubmit(e));
+                
+                // Reminder Modal Events
+                this.dom.closeReminderBtns.forEach(btn => btn.addEventListener('click', () => this.closeReminderModal()));
+                this.dom.reminderForm.addEventListener('submit', (e) => this.handleReminderSubmit(e));
+                
+                // Modal Type Switching
+                const typeRadios = this.dom.form.querySelectorAll('input[name="lead_type"]');
+                typeRadios.forEach(radio => {
+                    radio.addEventListener('change', (e) => {
+                        this.updateModalFields(e.target.value);
+                    });
+                });
+
+                // Filter & Search Events
+                this.dom.searchInput.addEventListener('input', (e) => {
+                    this.state.searchTerm = e.target.value.toLowerCase();
+                    this.renderAll();
+                });
+                this.dom.statusFilter.addEventListener('change', (e) => {
+                    this.state.filterStatus = e.target.value;
+                    this.renderAll();
+                });
+
+                // Bulk Selection Events
+                this.dom.selectAllCheckbox.addEventListener('change', (e) => this.toggleSelectAll(e.target.checked));
+                this.dom.closeBulkBar.addEventListener('click', () => {
+                    this.state.selectedIds.clear();
+                    this.renderAll();
+                });
+                
+                // Meta Sync Button
+                const syncBtn = document.getElementById('sync-meta-btn');
+                if (syncBtn) {
+                    syncBtn.addEventListener('click', async () => {
+                        syncBtn.disabled = true;
+                        syncBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
+                        await this.syncLeadsWithMeta();
+                        syncBtn.disabled = false;
+                        syncBtn.innerHTML = '<i class="fa-solid fa-rotate"></i>';
+                    });
+                }
+            }
+
+            updateTabsUI() {
+                this.dom.tabBtns.forEach(btn => {
+                    const isActive = btn.dataset.tab === this.state.activeTab;
+                    btn.className = isActive 
+                        ? "tab-btn px-4 py-2 text-sm font-bold text-indigo-600 border-b-2 border-indigo-600 transition-colors whitespace-nowrap"
+                        : "tab-btn px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 border-b-2 border-transparent transition-colors whitespace-nowrap";
+                });
+
+                // Update Header Text based on Tab
+                const headerCalc = this.dom.headerCalculator;
+                const headerDate = this.dom.headerDateType;
+                
+                switch(this.state.activeTab) {
+                    case CONFIG.TYPES.GENERAL: 
+                        headerCalc.textContent = 'Auto/Home Calc'; 
+                        headerDate.textContent = 'Renewal Date';
+                        break;
+                    case CONFIG.TYPES.LIFE: 
+                        headerCalc.textContent = 'Coverage Details'; 
+                        headerDate.textContent = 'Policy Type';
+                        break;
+                    case CONFIG.TYPES.TRAVEL: 
+                        headerCalc.textContent = 'Travel Details'; 
+                        headerDate.textContent = 'Trip Dates';
+                        break;
+                    default: 
+                        headerCalc.textContent = 'Policy Details'; 
+                        headerDate.textContent = 'Renewal/Type';
+                        break;
+                }
+            }
+
+            getFilteredLeads() {
+                return this.state.leads.filter(lead => {
+                    // Filter by Tab Type
+                    if (this.state.activeTab !== 'all' && lead.type !== this.state.activeTab) return false;
+
+                    const term = this.state.searchTerm;
+                    const matchesSearch = !term || (
+                        (lead.name && lead.name.toLowerCase().includes(term)) || 
+                        (lead.phone && lead.phone.includes(term)) ||
+                        (lead.email && lead.email.toLowerCase().includes(term))
+                    );
+                    const matchesStatus = this.state.filterStatus === 'all' || lead.status === this.state.filterStatus;
+                    return matchesSearch && matchesStatus;
+                });
+            }
+            
+            updateStats() {
+                const leads = this.getFilteredLeads(); 
+                
+                const countNew = leads.filter(l => l.status === CONFIG.STATUS.NEW).length;
+                const countContacted = leads.filter(l => l.status === CONFIG.STATUS.CONTACTED).length;
+                const countQuotes = leads.filter(l => l.status === CONFIG.STATUS.QUOTE).length;
+                const countClosed = leads.filter(l => l.status === CONFIG.STATUS.WON).length;
+                
+                const totalPremium = leads
+                    .filter(l => l.status === CONFIG.STATUS.WON)
+                    .reduce((sum, l) => sum + (parseFloat(l.premium) || 0), 0);
+
+                this.dom.statNew.textContent = countNew;
+                this.dom.statContacted.textContent = countContacted;
+                this.dom.statQuotes.textContent = countQuotes;
+                this.dom.statClosed.textContent = countClosed;
+                this.dom.statPremium.textContent = '$' + totalPremium.toLocaleString();
+            }
+
+            getTimeAgo(dateString) {
+                if (!dateString) return 'Just now';
+                const now = new Date();
+                const created = new Date(dateString);
+                const diffMs = now - created;
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffHours = Math.floor(diffMs / 3600000);
+                const diffDays = Math.floor(diffMs / 86400000);
+
+                if (diffMins < 1) return 'Just now';
+                if (diffMins < 60) return `${diffMins} min ago`;
+                if (diffHours < 24) return `${diffHours} hr ago`;
+                return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+            }
+
+            renderAll() {
+                this.dom.tbody.innerHTML = '';
+                const filtered = this.getFilteredLeads();
+                
+                if (filtered.length === 0) {
+                    this.dom.noResults.classList.remove('hidden');
+                } else {
+                    this.dom.noResults.classList.add('hidden');
+                    filtered.forEach(lead => this.renderRow(lead));
+                }
+                
+                this.updateBulkUI();
+                this.initDatePickers(); // Re-init date pickers for new rows
+            }
+
+            /**
+             * Renders a single row.
+             * Refactored to use helper methods for cleanliness.
+             */
+            renderRow(lead) {
+                const clone = this.dom.template.content.cloneNode(true);
+                const row = clone.querySelector('tr');
+
+                row.dataset.id = lead.id;
+                
+                // Identity Column
+                row.querySelector('.lead-name').textContent = lead.name;
+                row.querySelector('.lead-age').textContent = this.getTimeAgo(lead.created_at);
+                this._renderLeadBadge(row, lead);
+                this._renderIcon(row, lead);
+                this._renderNotesPreview(row, lead);
+
+                // Contact Column
+                row.querySelector('.lead-phone').textContent = lead.phone;
+                row.querySelector('.lead-email').textContent = lead.email;
+                const cleanPhone = lead.phone ? lead.phone.replace(/\D/g, '') : '';
+                row.querySelector('.lead-phone-link').href = `tel:${cleanPhone}`;
+
+                // Status Column
+                row.querySelector('.status-select').value = lead.status;
+
+                // Dynamic Columns (The heavy lifting refactored out)
+                this._renderDynamicCell(row, lead);
+                this._renderDateTypeCell(row, lead);
+
+                // Checkbox & Reminder
+                row.querySelector('.lead-checkbox').checked = this.state.selectedIds.has(lead.id);
+                this._renderReminderButton(row, lead);
+
+                // Meta Signal Sync UI (Mock random signal)
+                this.updateSignalUI(row, Math.random() > 0.4 ? 'green' : 'red'); 
+
+                this.dom.tbody.appendChild(clone);
+            }
+
+            // --- RENDER HELPERS ---
+
+            _renderIcon(row, lead) {
+                const iconEl = row.querySelector('.type-icon');
+                // Remove existing specific classes to allow reset
+                iconEl.className = 'type-icon w-5 h-5 rounded flex items-center justify-center text-[10px] border';
+                
+                if (lead.type === CONFIG.TYPES.LIFE) {
+                    if (lead.insuranceType === 'Critical Illness') {
+                        iconEl.innerHTML = '<i class="fa-solid fa-notes-medical"></i>';
+                        iconEl.classList.add(...CONFIG.CLASSES.ICON_CI.split(' '));
+                    } else {
+                        iconEl.innerHTML = '<i class="fa-solid fa-heart-pulse"></i>';
+                        iconEl.classList.add(...CONFIG.CLASSES.ICON_LIFE.split(' '));
+                    }
+                } else if (lead.type === CONFIG.TYPES.TRAVEL) {
+                    iconEl.innerHTML = '<i class="fa-solid fa-plane"></i>';
+                    iconEl.classList.add(...CONFIG.CLASSES.ICON_TRAVEL.split(' '));
+                } else {
+                    iconEl.innerHTML = '<i class="fa-solid fa-car"></i>';
+                    iconEl.classList.add(...CONFIG.CLASSES.ICON_GENERAL.split(' '));
+                }
+            }
+
+            _renderLeadBadge(row, lead) {
+                const badge = row.querySelector('.lead-id-badge');
+                if (lead.isManual) {
+                    badge.textContent = 'Manual';
+                    badge.className = 'lead-id-badge text-[10px] font-mono mt-1 px-1.5 py-0.5 rounded border w-fit ml-7 bg-slate-100 text-slate-500 border-slate-200';
+                } else {
+                    badge.textContent = `ID: #${lead.id}`;
+                    badge.className = 'lead-id-badge text-[10px] font-mono mt-1 px-1.5 py-0.5 rounded border w-fit ml-7 text-slate-400 bg-slate-50 border-slate-100';
+                }
+            }
+
+            _renderNotesPreview(row, lead) {
+                if (lead.notes) {
+                    const notesEl = row.querySelector('.lead-notes-preview');
+                    notesEl.classList.remove('hidden');
+                    notesEl.querySelector('.notes-text').textContent = lead.notes.length > 30 ? lead.notes.substring(0, 30) + '...' : lead.notes;
+                }
+            }
+
+            _renderReminderButton(row, lead) {
+                const reminderBtn = row.querySelector('.action-reminder');
+                // Reset classes
+                reminderBtn.className = 'action-reminder w-7 h-7 rounded-lg text-xs shadow-sm transition-all flex items-center justify-center';
+                
+                if (lead.reminder) {
+                    reminderBtn.classList.add(...CONFIG.CLASSES.REMINDER_ACTIVE);
+                    reminderBtn.innerHTML = '<i class="fa-solid fa-bell"></i>';
+                    reminderBtn.title = `Reminder: ${lead.reminder.time} - ${lead.reminder.note}`;
+                } else {
+                    reminderBtn.classList.add(...CONFIG.CLASSES.REMINDER_INACTIVE);
+                    reminderBtn.innerHTML = '<i class="fa-regular fa-bell pointer-events-none"></i>';
+                    reminderBtn.title = "Set Reminder";
+                }
+            }
+
+            _renderDynamicCell(row, lead) {
+                const calcCell = row.querySelector('.dynamic-cell');
+                if (lead.type === CONFIG.TYPES.LIFE) {
+                     calcCell.innerHTML = `
+                        <div class="space-y-1.5">
+                            <div class="relative"><div class="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none text-slate-400"><i class="fa-solid fa-shield-heart text-[9px]"></i></div>
+                                <input type="number" placeholder="Coverage" value="${lead.coverage || ''}" class="h-7 w-full bg-slate-50 border border-slate-200 text-slate-700 text-[10px] font-medium rounded block pl-5 px-1 focus:ring-1 focus:ring-indigo-500">
+                            </div>
+                            <div class="relative"><div class="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none text-slate-500"><i class="fa-solid fa-dollar-sign text-[9px]"></i></div>
+                                <input type="text" placeholder="Est. Prem" value="${lead.premium || ''}" class="h-7 w-full bg-slate-100 border border-slate-200 text-slate-900 text-[10px] font-bold rounded block pl-4 px-1">
+                            </div>
+                        </div>`;
+                } else if (lead.type === CONFIG.TYPES.TRAVEL) {
+                    calcCell.innerHTML = `
+                          <div class="space-y-1.5">
+                            <div class="relative"><div class="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none text-slate-400"><i class="fa-brands fa-canadian-maple-leaf text-[9px]"></i></div>
+                                <select class="h-7 w-full bg-slate-50 border border-slate-200 text-slate-700 text-[10px] font-medium rounded block pl-5 px-1 focus:ring-1 focus:ring-indigo-500">
+                                    <option>Visitor Visa</option>
+                                    <option ${lead.visaType === 'Super Visa' ? 'selected' : ''}>Super Visa</option>
+                                </select>
+                            </div>
+                             <div class="flex gap-1">
+                                <div class="relative w-full"><div class="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none text-slate-400"><i class="fa-solid fa-shield-halved text-[9px]"></i></div>
+                                    <input type="number" placeholder="Coverage Amount" value="${lead.coverage || ''}" class="h-7 w-full bg-slate-50 border border-slate-200 text-slate-700 text-[10px] font-medium rounded block pl-5 px-1">
+                                </div>
+                            </div>
+                        </div>`;
+                    row.querySelector('.mobile-label').textContent = "Travel Details"; 
+                } else {
+                    // Default General
+                    calcCell.innerHTML = `
+                        <span class="mobile-label">Premium Calculator</span>
+                        <div class="grid grid-cols-2 gap-1.5">
+                            <div class="relative"><div class="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none text-slate-400"><i class="fa-solid fa-car text-[9px]"></i></div>
+                                <input type="number" placeholder="Auto" class="calc-input calc-auto h-7 w-full bg-slate-50 border border-slate-200 text-slate-700 text-[10px] font-medium rounded block pl-5 px-1 focus:ring-1 focus:ring-indigo-500">
+                            </div>
+                            <div class="relative"><div class="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none text-slate-400"><i class="fa-solid fa-house text-[9px]"></i></div>
+                                <input type="number" placeholder="Home" class="calc-input calc-home h-7 w-full bg-slate-50 border border-slate-200 text-slate-700 text-[10px] font-medium rounded block pl-5 px-1 focus:ring-1 focus:ring-indigo-500">
+                            </div>
+                            <div class="relative"><div class="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none text-slate-400"><i class="fa-solid fa-building text-[9px]"></i></div>
+                                <input type="number" placeholder="Tent" class="calc-input calc-tenant h-7 w-full bg-slate-50 border border-slate-200 text-slate-700 text-[10px] font-medium rounded block pl-5 px-1 focus:ring-1 focus:ring-indigo-500">
+                            </div>
+                            <div class="relative"><div class="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none text-slate-500"><i class="fa-solid fa-calculator text-[9px]"></i></div>
+                                <input type="text" placeholder="Total" readonly value="${lead.premium || ''}" class="calc-total h-7 w-full bg-slate-100 border border-slate-200 text-slate-900 text-[10px] font-bold rounded block pl-5 px-1">
+                            </div>
+                        </div>`;
+                }
+            }
+
+            _renderDateTypeCell(row, lead) {
+                const dateTypeCell = row.querySelector('.date-type-cell');
+                if (lead.type === CONFIG.TYPES.LIFE) {
+                    dateTypeCell.innerHTML = `
+                        <span class="mobile-label">Policy Type</span>
+                        <div class="relative">
+                            <select class="insurance-type-select h-8 w-full bg-slate-50 border border-slate-200 text-slate-700 text-[11px] font-medium rounded-lg px-2 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 cursor-pointer">
+                                <option value="Term Life">Term Life</option>
+                                <option value="Whole Life">Whole Life</option>
+                                <option value="Critical Illness">Critical Illness</option>
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400"><i class="fa-solid fa-chevron-down text-[10px]"></i></div>
+                        </div>`;
+                    if(lead.insuranceType) dateTypeCell.querySelector('select').value = lead.insuranceType;
+                } else if (lead.type === CONFIG.TYPES.TRAVEL) {
+                    dateTypeCell.innerHTML = `
+                        <span class="mobile-label">Trip Dates</span>
+                        <div class="space-y-1">
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 flex items-center pl-1 pointer-events-none text-slate-400 text-[9px]">S:</div>
+                                <input type="text" class="date-picker trip-start h-6 w-full bg-white border border-slate-200 text-slate-700 text-[9px] font-medium rounded px-1 pl-4 focus:ring-1 focus:ring-indigo-500 cursor-pointer" value="${lead.tripStart || ''}" placeholder="mm/dd/yyyy">
+                            </div>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 flex items-center pl-1 pointer-events-none text-slate-400 text-[9px]">E:</div>
+                                <input type="text" class="date-picker trip-end h-6 w-full bg-white border border-slate-200 text-slate-700 text-[9px] font-medium rounded px-1 pl-4 focus:ring-1 focus:ring-indigo-500 cursor-pointer" value="${lead.tripEnd || ''}" placeholder="mm/dd/yyyy">
+                            </div>
+                        </div>`;
+                } else {
+                    dateTypeCell.innerHTML = `
+                        <span class="mobile-label">Renewal Date</span>
+                        <div class="relative">
+                            <input type="text" class="date-picker renewal-date h-8 w-full bg-white border border-slate-200 text-slate-700 text-[11px] font-medium rounded-lg px-2 focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 cursor-pointer" placeholder="mm/dd/yyyy">
+                        </div>`;
+                    if (lead.renewal) dateTypeCell.querySelector('input').value = lead.renewal;
+                }
+            }
+
+            // --- EVENT LOGIC ---
+
+            handleCheckboxChange(e) {
+                if (e.target.classList.contains('lead-checkbox')) {
+                    const row = e.target.closest('tr');
+                    const id = row.dataset.id;
+                    if (e.target.checked) {
+                        this.state.selectedIds.add(id);
+                    } else {
+                        this.state.selectedIds.delete(id);
+                    }
+                    this.updateBulkUI();
+                }
+            }
+
+            toggleSelectAll(checked) {
+                const visibleLeads = this.getFilteredLeads();
+                if (checked) {
+                    visibleLeads.forEach(l => this.state.selectedIds.add(l.id));
+                } else {
+                    this.state.selectedIds.clear();
+                }
+                this.renderAll();
+            }
+
+            updateBulkUI() {
+                const count = this.state.selectedIds.size;
+                this.dom.selectedCount.textContent = count;
+                this.dom.selectAllCheckbox.checked = count > 0 && count === this.getFilteredLeads().length;
+
+                if (count > 0) {
+                    this.dom.bulkActionBar.classList.remove('hidden');
+                } else {
+                    this.dom.bulkActionBar.classList.add('hidden');
+                }
+            }
+
+            handleTableClick(e) {
+                const target = e.target;
+                const row = target.closest('tr');
+                if (!row) return;
+
+                if (target.closest('.action-process')) {
+                    // Get lead data and navigate to Auto dashboard with parameters
+                    const leadId = row.dataset.id;
+                    const lead = this.state.leads.find(l => l.id === leadId);
+                    if (lead) {
+                        const params = new URLSearchParams({
+                            name: lead.name || '',
+                            phone: lead.phone || '',
+                            email: lead.email || ''
+                        });
+                        window.location.href = `Auto dashboard.html?${params.toString()}`;
+                    } else {
+                        window.location.href = 'Auto dashboard.html';
+                    }
+                } else if (target.closest('.action-edit')) {
+                    this.openEditModal(row.dataset.id);
+                } else if (target.closest('.action-delete')) {
+                    this.deleteLead(row.dataset.id);
+                } else if (target.closest('.action-save-google')) {
+                    this.saveToGoogle(target.closest('.action-save-google'), row);
+                } else if (target.closest('.action-signal-green')) {
+                    this.updateSignalUI(row, 'green');
+                } else if (target.closest('.action-signal-red')) {
+                    this.updateSignalUI(row, 'red');
+                } else if (target.closest('.action-sync')) {
+                    this.syncMetaSignal(target.closest('.action-sync'), row);
+                } else if (target.closest('.action-reminder')) {
+                    this.openReminderModal(row.dataset.id);
+                }
+            }
+
+            handleTableInput(e) {
+                if (e.target.classList.contains('calc-input')) {
+                    this.calculatePremium(e.target.closest('tr'));
+                } else if (e.target.classList.contains('status-select')) {
+                    // Update status in database
+                    const id = e.target.closest('tr').dataset.id;
+                    const lead = this.state.leads.find(l => l.id === id);
+                    if (lead) {
+                        lead.status = e.target.value;
+                        this.updateStats(); // Recalculate stats on status change
+                        
+                        // Save to database
+                        fetch(`${BACKEND_URL}/api/leads/${id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ status: e.target.value })
+                        })
+                        .then(res => res.json())
+                        .then(() => {
+                            console.log('✅ Status saved to database');
+                        })
+                        .catch(error => {
+                            console.error('❌ Failed to save status:', error);
+                            this.showToast('Failed to save status', 'error');
+                        });
+                    }
+                } else if (e.target.classList.contains('insurance-type-select')) {
+                     const id = e.target.closest('tr').dataset.id;
+                     const lead = this.state.leads.find(l => l.id === id);
+                     if (lead) {
+                         lead.insuranceType = e.target.value;
+                         // Update icon logic
+                         const row = e.target.closest('tr');
+                         this._renderIcon(row, lead);
+                     }
+                }
+            }
+
+            // --- CRUD OPERATIONS ---
+            deleteLead(id) {
+                if (confirm('Are you sure you want to delete this lead?')) {
+                    fetch(`${BACKEND_URL}/api/leads/${id}`, {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' }
+                    })
+                    .then(res => res.json())
+                    .then(result => {
+                        this.state.selectedIds.delete(id);
+                        this.loadLeadsFromBackend().then(() => {
+                            this.renderAll();
+                            this.updateStats();
+                            this.showToast('Lead deleted successfully', 'success');
+                        });
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        this.showToast('Failed to delete lead', 'error');
+                    });
+                }
+            }
+
+            openEditModal(id) {
+                const lead = this.state.leads.find(l => l.id === id);
+                if (!lead) return;
+
+                // Pre-fill Form
+                const form = this.dom.form;
+                form.lead_id.value = lead.id;
+                form.name.value = lead.name;
+                form.phone.value = lead.phone;
+                form.email.value = lead.email;
+                if (lead.renewal) {
+                    const rInput = form.querySelector('input[name="renewal"]');
+                    if (rInput) rInput.value = lead.renewal;
+                }
+                form.notes.value = lead.notes || '';
+                
+                // Set Radio and Update Fields
+                const radio = form.querySelector(`input[name="lead_type"][value="${lead.type}"]`);
+                if(radio) {
+                    radio.checked = true;
+                    this.updateModalFields(lead.type);
+                }
+                
+                // Set dynamic values
+                if (lead.type === CONFIG.TYPES.LIFE) {
+                    if(lead.insuranceType) {
+                        const typeSelect = form.querySelector('[name="insurance_type"]');
+                        if(typeSelect) typeSelect.value = lead.insuranceType;
+                    }
+                    if(lead.policyTerm) {
+                        const termSelect = form.querySelector('[name="policy_term"]');
+                        if(termSelect) termSelect.value = lead.policyTerm;
+                    }
+                } else if (lead.type === CONFIG.TYPES.TRAVEL) {
+                    if(lead.visaType) {
+                        const visaSelect = form.querySelector('[name="visa_type"]');
+                        if(visaSelect) visaSelect.value = lead.visaType;
+                    }
+                    if(lead.coverage) {
+                        const covInput = form.querySelector('[name="coverage_amount"]');
+                        if(covInput) covInput.value = lead.coverage;
+                    }
+                    if(lead.tripStart) form.querySelector('[name="trip_start"]').value = lead.tripStart;
+                    if(lead.tripEnd) form.querySelector('[name="trip_end"]').value = lead.tripEnd;
+                } else if (lead.renewal) {
+                    const renewalInput = form.querySelector('[name="renewal"]');
+                    if(renewalInput) renewalInput.value = lead.renewal;
+                }
+
+                this.dom.modalTitle.innerHTML = '<i class="fa-solid fa-pen-to-square text-indigo-500 mr-2"></i> Edit Lead';
+                this.dom.modalSubmitBtn.innerHTML = '<span>Save & Continue</span> <i class="fa-solid fa-chevron-right text-xs"></i>';
+
+                this.openModal();
+            }
+
+            updateModalFields(type) {
+                // 1. Update Date/Type Field
+                const dateContainer = this.dom.modalDateTypeContainer;
+                if (type === CONFIG.TYPES.LIFE) {
+                    dateContainer.innerHTML = `
+                         <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase mb-1.5">Policy Type</label>
+                                <select name="insurance_type" class="w-full h-10 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 px-3 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
+                                    <option value="Term Life">Term Life</option>
+                                    <option value="Whole Life">Whole Life</option>
+                                    <option value="Critical Illness">Critical Illness</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase mb-1.5">Term Length</label>
+                                <select name="policy_term" class="w-full h-10 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 px-3 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
+                                    <option value="">N/A</option>
+                                    <option value="10">Term 10</option>
+                                    <option value="20">Term 20</option>
+                                    <option value="30">Term 30</option>
+                                    <option value="100">Term 100</option>
+                                </select>
+                            </div>
+                        </div>`;
+                } else if (type === CONFIG.TYPES.TRAVEL) {
+                     dateContainer.innerHTML = `
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase mb-1.5">Trip Start Date</label>
+                                <div class="relative">
+                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><i class="fa-regular fa-calendar"></i></div>
+                                    <input type="text" name="trip_start" class="date-picker w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all cursor-pointer" placeholder="mm/dd/yyyy">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase mb-1.5">Trip End Date</label>
+                                <div class="relative">
+                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><i class="fa-regular fa-calendar-check"></i></div>
+                                    <input type="text" name="trip_end" class="date-picker w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all cursor-pointer" placeholder="mm/dd/yyyy">
+                                </div>
+                            </div>
+                        </div>`;
+                } else {
+                     dateContainer.innerHTML = `
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1.5">Renewal Date</label>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400"><i class="fa-regular fa-calendar"></i></div>
+                                <input type="text" name="renewal" class="date-picker w-full h-10 pl-9 pr-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all cursor-pointer" placeholder="mm/dd/yyyy">
+                            </div>
+                        </div>`;
+                }
+                
+                this.initDatePickers();
+
+                // 2. Update Calculator Fields
+                const calcContainer = this.dom.modalDynamicFields;
+                if(type === CONFIG.TYPES.GENERAL) {
+                    calcContainer.innerHTML = `
+                        <div class="grid grid-cols-2 gap-3">
+                            <div><label class="text-[10px] font-bold text-slate-400 uppercase">Auto Prem</label><input type="number" class="w-full h-8 text-xs border rounded px-2" placeholder="$0"></div>
+                            <div><label class="text-[10px] font-bold text-slate-400 uppercase">Home Prem</label><input type="number" class="w-full h-8 text-xs border rounded px-2" placeholder="$0"></div>
+                        </div>
+                    `;
+                } else if (type === CONFIG.TYPES.LIFE) {
+                    calcContainer.innerHTML = `
+                         <div class="grid grid-cols-2 gap-3">
+                            <div><label class="text-[10px] font-bold text-slate-400 uppercase">Coverage Amt</label><input type="number" class="w-full h-8 text-xs border rounded px-2" placeholder="$500,000"></div>
+                            <div><label class="text-[10px] font-bold text-slate-400 uppercase">Est. Annual Prem</label><input type="number" class="w-full h-8 text-xs border rounded px-2" placeholder="$0"></div>
+                        </div>
+                    `;
+                } else if (type === CONFIG.TYPES.TRAVEL) {
+                     calcContainer.innerHTML = `
+                         <div class="grid grid-cols-2 gap-3">
+                            <div><label class="text-[10px] font-bold text-slate-400 uppercase">Visa Type</label>
+                                <select name="visa_type" class="w-full h-8 text-xs border rounded px-2 bg-white">
+                                    <option value="Visitor Visa">Visitor Visa</option>
+                                    <option value="Super Visa">Super Visa</option>
+                                </select>
+                            </div>
+                            <div><label class="text-[10px] font-bold text-slate-400 uppercase">Coverage Amt</label><input name="coverage_amount" type="number" class="w-full h-8 text-xs border rounded px-2" placeholder="$100,000"></div>
+                        </div>
+                    `;
+                }
+            }
+
+            handleFormSubmit(e) {
+                e.preventDefault();
+                const formData = new FormData(this.dom.form);
+                const id = formData.get('lead_id');
+                const type = formData.get('lead_type');
+                
+                const leadData = {
+                    name: formData.get('name'),
+                    phone: formData.get('phone'),
+                    email: formData.get('email'),
+                    type: type,
+                    status: 'New Lead',
+                    notes: formData.get('notes'),
+                    is_manual: true
+                };
+                
+                if (id) {
+                    // Update existing lead
+                    fetch(`${BACKEND_URL}/api/leads/${id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(leadData)
+                    })
+                    .then(res => res.json())
+                    .then(result => {
+                        this.showToast(`Lead updated successfully`, 'success');
+                        this.closeModal();
+                        this.loadLeadsFromBackend().then(() => {
+                            this.renderAll();
+                            this.updateStats();
+                        });
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        this.showToast('Failed to update lead', 'error');
+                    });
+                } else {
+                    // Create new manual lead
+                    fetch(`${BACKEND_URL}/api/leads/create`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(leadData)
+                    })
+                    .then(res => res.json())
+                    .then(result => {
+                        if (result.success) {
+                            this.showToast(`Manual ${type} lead added`, 'success');
+                            // Add new lead to TOP of the list
+                            const newLead = result.data;
+                            this.state.leads.unshift(newLead); // Add to beginning of array
+                            this.closeModal();
+                            this.renderAll();
+                            this.updateStats();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        this.showToast('Failed to create lead', 'error');
+                    });
+                }
+            }
+
+            openModal() {
+                // If opening "Fresh", reset form and UI
+                if (!this.dom.form.lead_id.value) {
+                    this.dom.form.reset();
+                    // Set default type to active tab if possible, else general
+                    const defaultType = (this.state.activeTab !== 'all') ? this.state.activeTab : CONFIG.TYPES.GENERAL;
+                    const radio = this.dom.form.querySelector(`input[name="lead_type"][value="${defaultType}"]`);
+                    if(radio) {
+                        radio.checked = true; 
+                        this.updateModalFields(defaultType);
+                    }
+                    
+                    this.dom.modalTitle.innerHTML = '<i class="fa-solid fa-user-plus text-indigo-500 mr-2"></i> Add Manual Lead';
+                    this.dom.modalSubmitBtn.innerHTML = '<span>Next: Policy Details</span> <i class="fa-solid fa-chevron-right text-xs"></i>';
+                }
+                this.dom.modal.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+                this.initDatePickers(); 
+            }
+
+            closeModal() {
+                this.dom.modal.classList.add('hidden');
+                document.body.style.overflow = '';
+                // Delay reset to allow transition
+                setTimeout(() => {
+                    this.dom.form.reset();
+                    this.dom.form.lead_id.value = ''; // Clear hidden ID
+                }, 300);
+            }
+
+            openReminderModal(leadId) {
+                const lead = this.state.leads.find(l => l.id === leadId);
+                if(!lead) return;
+
+                document.getElementById('reminder_lead_id').value = leadId;
+                const timeInput = document.getElementById('reminder-time');
+                const noteInput = document.getElementById('reminder-note');
+                
+                if(lead.reminder) {
+                    timeInput.value = lead.reminder.time;
+                    noteInput.value = lead.reminder.note;
+                } else {
+                    timeInput.value = '';
+                    noteInput.value = '';
+                }
+
+                this.dom.reminderModal.classList.remove('hidden');
+                this.initDatePickers();
+            }
+
+            closeReminderModal() {
+                this.dom.reminderModal.classList.add('hidden');
+            }
+
+            handleReminderSubmit(e) {
+                e.preventDefault();
+                const leadId = document.getElementById('reminder_lead_id').value;
+                const time = document.getElementById('reminder-time').value;
+                const note = document.getElementById('reminder-note').value;
+
+                const lead = this.state.leads.find(l => l.id === leadId);
+                if(lead) {
+                    lead.reminder = { time, note };
+                    this.showToast('Reminder set successfully', 'success');
+                    this.renderAll(); 
+                    this.closeReminderModal();
+                }
+            }
+
+            calculatePremium(row) {
+                // Simplified for demo - mainly handles the General Auto/Home calc
+                const auto = parseFloat(row.querySelector('.calc-auto')?.value) || 0;
+                const home = parseFloat(row.querySelector('.calc-home')?.value) || 0;
+                const tenant = parseFloat(row.querySelector('.calc-tenant')?.value) || 0;
+                const total = auto + home + tenant;
+                
+                const totalEl = row.querySelector('.calc-total');
+                // Ensure we don't display NaN or 0 unnecessarily
+                if(totalEl) totalEl.value = total > 0 ? total : '';
+                
+                // Update State for Stats Calculation
+                const id = row.dataset.id;
+                const lead = this.state.leads.find(l => l.id === id);
+                if (lead) {
+                    lead.premium = total;
+                    this.updateStats(); // Recalculate stats immediately
+                    
+                    // Save to database
+                    fetch(`${BACKEND_URL}/api/leads/${id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ premium: total })
+                    })
+                    .then(res => res.json())
+                    .then(() => {
+                        console.log('✅ Premium saved to database');
+                    })
+                    .catch(error => {
+                        console.error('❌ Failed to save premium:', error);
+                    });
+                }
+            }
+
+            updateSignalUI(row, type) {
+                const leadId = row.dataset.id;
+                const greenBtn = row.querySelector('.action-signal-green');
+                const redBtn = row.querySelector('.action-signal-red');
+                const syncBtn = row.querySelector('.action-sync');
+                
+                // Send to backend
+                fetch(`${BACKEND_URL}/api/leads/${leadId}/signal`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ signal: type })
+                })
+                .then(res => res.json())
+                .then(result => {
+                    if (type === 'green') {
+                        greenBtn.className = "action-signal-green w-9 py-1 rounded-md text-[9px] font-bold transition-all bg-emerald-100 text-emerald-700 shadow-inner";
+                        redBtn.className = "action-signal-red w-9 py-1 rounded-md text-[9px] font-bold transition-all text-slate-300 hover:text-rose-600";
+                        syncBtn.disabled = false;
+                        syncBtn.className = "action-sync w-full h-7 bg-blue-600 hover:bg-blue-700 text-white rounded text-[9px] font-bold shadow-sm transition-all flex items-center justify-center gap-1";
+                        syncBtn.innerHTML = '<i class="fa-brands fa-meta pointer-events-none"></i> Sync';
+                    } else {
+                        greenBtn.className = "action-signal-green w-9 py-1 rounded-md text-[9px] font-bold transition-all text-slate-300 hover:text-emerald-600";
+                        redBtn.className = "action-signal-red w-9 py-1 rounded-md text-[9px] font-bold transition-all bg-rose-100 text-rose-700 shadow-inner";
+                        syncBtn.disabled = true;
+                        syncBtn.className = "action-sync w-full h-7 bg-slate-100 text-slate-400 border border-slate-200 rounded text-[9px] font-bold flex items-center justify-center gap-1 cursor-not-allowed";
+                        syncBtn.innerHTML = 'No Sync';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error updating signal:', error);
+                });
+            }
+
+            syncMetaSignal(btn, row) {
+                if (btn.disabled) return;
+                const leadId = row.dataset.id;
+                const name = row.querySelector('.lead-name').textContent;
+                const timestampEl = row.querySelector('.sync-timestamp');
+                
+                btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin pointer-events-none"></i>';
+                btn.disabled = true;
+                
+                // Send event to Meta via backend
+                fetch(`${BACKEND_URL}/api/leads/${leadId}/sync-event`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ event_type: 'Lead' })
+                })
+                .then(res => res.json())
+                .then(result => {
+                    btn.className = "action-sync w-full h-7 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded text-[9px] font-bold flex items-center justify-center gap-1 cursor-default";
+                    btn.innerHTML = '<i class="fa-solid fa-check pointer-events-none"></i> Sent';
+                    const now = new Date();
+                    timestampEl.textContent = `Sent: ${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+                    timestampEl.style.opacity = '1';
+                    this.showToast(`Lead "${name}" sent to Meta Event Manager`, 'success');
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    btn.className = "action-sync w-full h-7 bg-rose-50 text-rose-600 border border-rose-200 rounded text-[9px] font-bold flex items-center justify-center gap-1";
+                    btn.innerHTML = '<i class="fa-solid fa-exclamation"></i> Failed';
+                    this.showToast('Failed to sync to Meta', 'error');
+                    btn.disabled = false;
+                });
+            }
+
+            saveToGoogle(btn, row) {
+                const name = row.querySelector('.lead-name').textContent;
+                btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-[10px] text-blue-500 pointer-events-none"></i>';
+                btn.classList.add('bg-blue-50', 'border-blue-200');
+                setTimeout(() => {
+                    btn.innerHTML = '<i class="fa-solid fa-check text-[10px] text-emerald-500 pointer-events-none"></i>';
+                    btn.classList.remove('bg-blue-50', 'border-blue-200');
+                    btn.classList.add('bg-emerald-50', 'border-emerald-200');
+                    this.showToast(`Saved ${name} to Google Contacts`, 'success');
+                }, 1000);
+            }
+
+            showToast(msg, type) {
+                const el = document.createElement('div');
+                el.className = "bg-slate-800 text-white px-4 py-3 rounded-lg shadow-2xl text-xs font-bold flex items-center gap-3 toast-enter pointer-events-auto border border-slate-700";
+                const isGoogle = msg.includes('Google');
+                const icon = isGoogle ? 'fa-brands fa-google' : 'fa-brands fa-meta';
+                el.innerHTML = `<i class="${icon} text-blue-400"></i> ${msg}`;
+                this.dom.toastContainer.appendChild(el);
+                setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => { window.dashboardApp = new DashboardApp(); });
+    </script>
+</body>
+</html>
