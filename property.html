@@ -893,7 +893,7 @@
                     console.log("💾 Saving complete property data:", propertyData);
                     
                     // Send to backend
-                    const response = await fetch('https://auto-dash-lead-1.onrender.com/api/save-property', {
+                    const response = await fetch('http://localhost:5000/api/save-property', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',

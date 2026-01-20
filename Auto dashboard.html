@@ -1573,7 +1573,7 @@
                     console.log("💾 Saving complete client data:", clientData);
                     
                     // Send to backend
-                    const response = await fetch('https://auto-dash-lead-1.onrender.com/api/save-client', {
+                    const response = await fetch('http://localhost:5000/api/save-client', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -1622,7 +1622,7 @@
                 try {
                     console.log('📡 Fetching leads from backend...');
                     // Fetch leads from backend
-                    const response = await fetch('https://auto-dash-lead-1.onrender.com/api/leads');
+                    const response = await fetch('http://localhost:5000/api/leads');
                     console.log('📥 Response status:', response.status);
                     
                     const result = await response.json();

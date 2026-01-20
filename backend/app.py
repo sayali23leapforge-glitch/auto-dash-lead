@@ -7,18 +7,20 @@ import os
 import json
 import requests
 from datetime import datetime
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
 from supabase import create_client, Client
 import hmac
 import hashlib
-from .pdf_parser import parse_mvr_pdf, parse_dash_pdf
+from pdf_parser import parse_mvr_pdf, parse_dash_pdf
 
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), '../.env.local'))
 
-app = Flask(__name__)
+# Configure Flask to serve static files from parent directory
+STATIC_FOLDER = os.path.join(os.path.dirname(__file__), '..')
+app = Flask(__name__, static_folder=STATIC_FOLDER, static_url_path='')
 CORS(app)
 
 # ========== CONFIG ==========
@@ -218,22 +220,20 @@ def send_event_to_meta(lead_id, event_type, event_data):
 
 # ========== API ENDPOINTS ==========
 
-@app.route('/', methods=['GET'])
+@app.route('/')
 def index():
-    """Root endpoint - API info"""
-    return jsonify({
-        'service': 'Auto Insurance Dashboard API',
-        'status': 'running',
-        'version': '1.0.0',
-        'endpoints': {
-            'health': '/api/health',
-            'leads': '/api/leads',
-            'parse_mvr': '/api/parse-mvr',
-            'parse_dash': '/api/parse-dash',
-            'save_client': '/api/save-client',
-            'save_property': '/api/save-property'
-        }
-    }), 200
+    """Serve Meta Dashboard as home page"""
+    return send_from_directory(app.static_folder, 'meta dashboard.html')
+
+@app.route('/auto')
+def auto_dashboard():
+    """Serve Auto Dashboard"""
+    return send_from_directory(app.static_folder, 'Auto dashboard.html')
+
+@app.route('/property')
+def property_dashboard():
+    """Serve Property Dashboard"""
+    return send_from_directory(app.static_folder, 'property.html')
 
 @app.route('/api/health', methods=['GET'])
 def health():
