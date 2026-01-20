@@ -615,39 +615,41 @@
             startAutoRefresh() {
                 // Poll for new leads every 30 seconds
                 setInterval(async () => {
-                    console.log('🔄 Auto-checking for new leads...');
-                    await this.checkForNewLeads();
+                    console.log('🔄 Auto-syncing leads from Facebook...');
+                    await this.syncLeadsFromFacebook();
                 }, 30000); // 30 seconds
             }
 
-            async checkForNewLeads() {
+            async syncLeadsFromFacebook() {
                 try {
-                    const response = await fetch(`${BACKEND_URL}/api/leads`, {
-                        method: 'GET',
+                    // Call backend to fetch latest leads from Facebook and save to DB
+                    const response = await fetch(`${BACKEND_URL}/api/leads/sync`, {
+                        method: 'POST',
                         headers: { 'Content-Type': 'application/json' }
                     });
                     const result = await response.json();
-                    const freshLeads = result.data || [];
                     
-                    // Find new leads by comparing IDs
-                    const existingIds = new Set(this.state.leads.map(l => l.id));
-                    const newLeads = freshLeads.filter(l => !existingIds.has(l.id));
-                    
-                    if (newLeads.length > 0) {
-                        console.log(`✨ Found ${newLeads.length} new leads!`);
+                    if (result.success && result.leads && result.leads.length > 0) {
+                        console.log(`✨ Synced ${result.leads.length} new leads from Facebook!`);
                         
-                        // Add new leads to the TOP of the list
-                        this.state.leads = [...newLeads, ...this.state.leads];
+                        // Find truly new leads (not already in our state)
+                        const existingIds = new Set(this.state.leads.map(l => l.id));
+                        const newLeads = result.leads.filter(l => !existingIds.has(l.id));
                         
-                        // Re-render and update stats
-                        this.renderAll();
-                        this.updateStats();
-                        
-                        // Show notification
-                        this.showToast(`${newLeads.length} new lead(s) from Facebook!`, 'success');
+                        if (newLeads.length > 0) {
+                            // Add new leads to the TOP of the list
+                            this.state.leads = [...newLeads, ...this.state.leads];
+                            
+                            // Re-render and update stats
+                            this.renderAll();
+                            this.updateStats();
+                            
+                            // Show notification
+                            this.showToast(`${newLeads.length} new lead(s) from Facebook!`, 'success');
+                        }
                     }
                 } catch (error) {
-                    console.error('❌ Auto-refresh error:', error);
+                    console.error('❌ Auto-sync error:', error);
                 }
             }
 
