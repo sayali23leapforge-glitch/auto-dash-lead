@@ -942,7 +942,7 @@
                     container.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-indigo-600 text-lg"></i><span class="text-xs text-indigo-600 mt-1">Parsing...</span>';
                     
                     const endpoint = type === 'mvr' ? 'parse-mvr' : 'parse-dash';
-                    const response = await fetch(`http://localhost:5000/api/${endpoint}`, {
+                    const response = await fetch(`${window.location.origin}/api/${endpoint}`, {
                         method: 'POST',
                         body: formData
                     });
@@ -1573,7 +1573,7 @@
                     console.log("💾 Saving complete client data:", clientData);
                     
                     // Send to backend
-                    const response = await fetch('http://localhost:5000/api/save-client', {
+                    const response = await fetch(`${window.location.origin}/api/save-client`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -1622,7 +1622,7 @@
                 try {
                     console.log('📡 Fetching leads from backend...');
                     // Fetch leads from backend
-                    const response = await fetch('http://localhost:5000/api/leads');
+                    const response = await fetch(`${window.location.origin}/api/leads`);
                     console.log('📥 Response status:', response.status);
                     
                     const result = await response.json();
