@@ -1219,6 +1219,12 @@
                             
                             // Refresh UI to show populated fields for MVR
                             this.refreshUI();
+                            
+                            // Re-render claims sections if they exist (preserve DASH claims after MVR parse)
+                            if (drv.claims && drv.claims.length > 0) {
+                                console.log(`🔄 Re-rendering ${drv.claims.length} existing claims after MVR parse`);
+                                this.renderClaimSections(drv.claims);
+                            }
                         }
                         
                         // Note: refreshUI is called within each type block above
