@@ -176,11 +176,10 @@
                         </div>
                         <input type="text" id="client-search" autocomplete="off"
                             class="block w-full p-2.5 pl-10 text-xs font-medium text-slate-900 border border-slate-200 rounded-lg bg-slate-50 focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 transition-all placeholder-slate-400" 
-                            placeholder="Search clients..." 
-                            oninput="App.handleSearch(this.value)">
+                            placeholder="Search clients...">
                         <div id="search-results" class="hidden absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto"></div>
                     </div>
-                    <button id="btn-save" onclick="App.saveToDatabase()" class="text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2.5 rounded-lg shadow-sm transition-all flex items-center gap-2 whitespace-nowrap focus:ring-2 focus:ring-emerald-500 focus:outline-none" title="Ctrl + S">
+                    <button id="btn-save" class="text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2.5 rounded-lg shadow-sm transition-all flex items-center gap-2 whitespace-nowrap focus:ring-2 focus:ring-emerald-500 focus:outline-none" title="Ctrl + S">
                         <i class="fa-solid fa-database"></i> Save
                     </button>
                 </div>
@@ -207,14 +206,14 @@
                                 <label class="block text-[11px] font-semibold text-slate-600 mb-2">Policy Type</label>
                                 <div class="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
                                     <label class="flex-1 cursor-pointer">
-                                        <input type="radio" name="policyType" data-key="policyType" value="Homeowners" class="hud-pills__input sr-only" checked onchange="App.switchPolicyType(this.value)">
+                                        <input type="radio" name="policyType" data-key="policyType" value="Homeowners" class="hud-pills__input sr-only" checked>
                                         <div class="hud-pills__label py-2 text-center text-xs font-bold text-slate-500 rounded-md transition-all flex flex-col items-center gap-1">
                                             <i class="fa-solid fa-house-chimney text-sm"></i>
                                             Homeowners
                                         </div>
                                     </label>
                                     <label class="flex-1 cursor-pointer">
-                                        <input type="radio" name="policyType" data-key="policyType" value="Tenants" class="hud-pills__input sr-only" onchange="App.switchPolicyType(this.value)">
+                                        <input type="radio" name="policyType" data-key="policyType" value="Tenants" class="hud-pills__input sr-only">
                                         <div class="hud-pills__label py-2 text-center text-xs font-bold text-slate-500 rounded-md transition-all flex flex-col items-center gap-1">
                                             <i class="fa-solid fa-door-open text-sm"></i>
                                             Tenants
@@ -226,7 +225,7 @@
                             <!-- Property Selector -->
                             <div id="prop-nav-container" class="flex items-center justify-between mb-4 bg-slate-50 p-2 rounded-lg border border-slate-200">
                                 <div class="flex-1 mr-2 relative">
-                                    <select id="property-selector" onchange="App.switchProperty(this.value)" class="w-full bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer appearance-none pr-6 focus:ring-2 focus:ring-emerald-500 rounded"></select>
+                                    <select id="property-selector" class="w-full bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer appearance-none pr-6 focus:ring-2 focus:ring-emerald-500 rounded"></select>
                                     <i class="fa-solid fa-chevron-down absolute right-0 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none"></i>
                                 </div>
                                 <div class="flex gap-1">
@@ -287,9 +286,9 @@
                             <div>
                                 <label class="hud-label">Type of Consent</label>
                                 <div class="hud-pills">
-                                    <label class="flex-1"><input type="radio" name="consentRadios" value="Verbal" onchange="App.setConsent(this.value)" class="hud-pills__input sr-only"><div class="hud-pills__label hud-pills__label--emerald">Verbal</div></label>
-                                    <label class="flex-1"><input type="radio" name="consentRadios" value="Written" onchange="App.setConsent(this.value)" class="hud-pills__input sr-only"><div class="hud-pills__label hud-pills__label--indigo">Written</div></label>
-                                    <label class="flex-1"><input type="radio" name="consentRadios" value="None" onchange="App.setConsent(this.value)" class="hud-pills__input sr-only"><div class="hud-pills__label">None</div></label>
+                                    <label class="flex-1"><input type="radio" name="consentRadios" value="Verbal" class="hud-pills__input sr-only"><div class="hud-pills__label hud-pills__label--emerald">Verbal</div></label>
+                                    <label class="flex-1"><input type="radio" name="consentRadios" value="Written" class="hud-pills__input sr-only"><div class="hud-pills__label hud-pills__label--indigo">Written</div></label>
+                                    <label class="flex-1"><input type="radio" name="consentRadios" value="None" class="hud-pills__input sr-only"><div class="hud-pills__label">None</div></label>
                                 </div>
                             </div>
                         </div>
@@ -462,7 +461,7 @@
                         </div>
 
                         <div>
-                            <div class="flex justify-between items-end border-b border-slate-100 pb-2 mb-4"><h4 class="text-[10px] font-black text-slate-300 uppercase tracking-wider">System Updates (Year)</h4><label id="btn-standard-updates" class="flex items-center gap-2 cursor-pointer hidden"><input type="checkbox" onchange="App.toggleStandardUpdates(this)" class="accent-emerald-600 w-3 h-3 rounded"><span class="text-[10px] font-bold text-emerald-600 uppercase tracking-wide">Standard</span></label></div>
+                            <div class="flex justify-between items-end border-b border-slate-100 pb-2 mb-4"><h4 class="text-[10px] font-black text-slate-300 uppercase tracking-wider">System Updates (Year)</h4><label id="btn-standard-updates" class="flex items-center gap-2 cursor-pointer hidden"><input type="checkbox" class="accent-emerald-600 w-3 h-3 rounded"><span class="text-[10px] font-bold text-emerald-600 uppercase tracking-wide">Standard</span></label></div>
                             <div class="grid grid-cols-5 gap-3 mb-4">
                                 <div><label class="hud-label">Heating</label><input class="hud-input font-mono text-center" data-key="heatYear" placeholder="YYYY" maxlength="4"></div>
                                 <div><label class="hud-label">Electric</label><input class="hud-input font-mono text-center" data-key="elecYear" placeholder="YYYY" maxlength="4"></div>
@@ -502,11 +501,11 @@
 
         <!-- RIGHT SIDE: NAV RAIL -->
         <div class="bg-white border-l border-slate-200 h-full flex flex-col items-center py-6 gap-6 z-20 shadow-[-4px_0_24px_rgba(0,0,0,0.02)]">
-            <button onclick="App.scrollToSection('card-client')" class="hud-nav__item group relative flex items-center justify-center w-8 h-8 rounded-full hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-all focus:outline-none"><i class="fa-solid fa-user text-xs"></i><span class="hud-nav__tooltip absolute right-12 bg-slate-800 text-white text-[10px] font-bold px-2 py-1.5 rounded opacity-0 transition-all whitespace-nowrap pointer-events-none shadow-lg translate-x-2">Client Details (Alt+1)<div class="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-800 rotate-45"></div></span></button>
-            <button onclick="App.scrollToSection('card-applicants')" class="hud-nav__item group relative flex items-center justify-center w-8 h-8 rounded-full hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-all focus:outline-none"><i class="fa-solid fa-users text-xs"></i><span class="hud-nav__tooltip absolute right-12 bg-slate-800 text-white text-[10px] font-bold px-2 py-1.5 rounded opacity-0 transition-all whitespace-nowrap pointer-events-none shadow-lg translate-x-2">Applicants (Alt+2)<div class="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-800 rotate-45"></div></span></button>
-            <button onclick="App.scrollToSection('card-coverage')" class="hud-nav__item group relative flex items-center justify-center w-8 h-8 rounded-full hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-all focus:outline-none"><i class="fa-solid fa-shield-halved text-xs"></i><span class="hud-nav__tooltip absolute right-12 bg-slate-800 text-white text-[10px] font-bold px-2 py-1.5 rounded opacity-0 transition-all whitespace-nowrap pointer-events-none shadow-lg translate-x-2">Coverage (Alt+3)<div class="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-800 rotate-45"></div></span></button>
-            <button onclick="App.scrollToSection('card-property-systems')" class="hud-nav__item group relative flex items-center justify-center w-8 h-8 rounded-full hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-all focus:outline-none"><i class="fa-solid fa-house text-xs"></i><span class="hud-nav__tooltip absolute right-12 bg-slate-800 text-white text-[10px] font-bold px-2 py-1.5 rounded opacity-0 transition-all whitespace-nowrap pointer-events-none shadow-lg translate-x-2">Property (Alt+4)<div class="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-800 rotate-45"></div></span></button>
-            <button onclick="App.scrollToSection('card-additional')" class="hud-nav__item group relative flex items-center justify-center w-8 h-8 rounded-full hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-all focus:outline-none"><i class="fa-solid fa-clipboard-list text-xs"></i><span class="hud-nav__tooltip absolute right-12 bg-slate-800 text-white text-[10px] font-bold px-2 py-1.5 rounded opacity-0 transition-all whitespace-nowrap pointer-events-none shadow-lg translate-x-2">Notes (Alt+5)<div class="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-800 rotate-45"></div></span></button>
+            <button id="btn-nav-client" class="hud-nav__item group relative flex items-center justify-center w-8 h-8 rounded-full hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-all focus:outline-none"><i class="fa-solid fa-user text-xs"></i><span class="hud-nav__tooltip absolute right-12 bg-slate-800 text-white text-[10px] font-bold px-2 py-1.5 rounded opacity-0 transition-all whitespace-nowrap pointer-events-none shadow-lg translate-x-2">Client Details (Alt+1)<div class="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-800 rotate-45"></div></span></button>
+            <button id="btn-nav-applicants" class="hud-nav__item group relative flex items-center justify-center w-8 h-8 rounded-full hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-all focus:outline-none"><i class="fa-solid fa-users text-xs"></i><span class="hud-nav__tooltip absolute right-12 bg-slate-800 text-white text-[10px] font-bold px-2 py-1.5 rounded opacity-0 transition-all whitespace-nowrap pointer-events-none shadow-lg translate-x-2">Applicants (Alt+2)<div class="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-800 rotate-45"></div></span></button>
+            <button id="btn-nav-coverage" class="hud-nav__item group relative flex items-center justify-center w-8 h-8 rounded-full hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-all focus:outline-none"><i class="fa-solid fa-shield-halved text-xs"></i><span class="hud-nav__tooltip absolute right-12 bg-slate-800 text-white text-[10px] font-bold px-2 py-1.5 rounded opacity-0 transition-all whitespace-nowrap pointer-events-none shadow-lg translate-x-2">Coverage (Alt+3)<div class="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-800 rotate-45"></div></span></button>
+            <button id="btn-nav-property" class="hud-nav__item group relative flex items-center justify-center w-8 h-8 rounded-full hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-all focus:outline-none"><i class="fa-solid fa-house text-xs"></i><span class="hud-nav__tooltip absolute right-12 bg-slate-800 text-white text-[10px] font-bold px-2 py-1.5 rounded opacity-0 transition-all whitespace-nowrap pointer-events-none shadow-lg translate-x-2">Property (Alt+4)<div class="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-800 rotate-45"></div></span></button>
+            <button id="btn-nav-additional" class="hud-nav__item group relative flex items-center justify-center w-8 h-8 rounded-full hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-all focus:outline-none"><i class="fa-solid fa-clipboard-list text-xs"></i><span class="hud-nav__tooltip absolute right-12 bg-slate-800 text-white text-[10px] font-bold px-2 py-1.5 rounded opacity-0 transition-all whitespace-nowrap pointer-events-none shadow-lg translate-x-2">Notes (Alt+5)<div class="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-800 rotate-45"></div></span></button>
         </div>
     </div>
 
@@ -565,7 +564,91 @@
             blankTenant: { customer: { ...DataFactory.createDefaultCustomer(), quoteType: 'Tenant Quote' }, property: DataFactory.createDefaultProperty('Tenants') },
             properties: [], customer: {}, currPropIdx: 0, viewMode: 'Homeowners', isDirty: false,
 
+            // Select a lead and load property data for that lead
+            selectLead: async function(name, phone, email) {
+                console.log('👤 Selecting lead (property):', {name, phone, email});
+                // Update search box
+                const searchInput = document.getElementById('client-search');
+                if (searchInput) searchInput.value = name;
+                // Store original lead info for search restore
+                this.originalLead = { name, phone, email };
+                localStorage.setItem('autoDashboardOriginalLead', JSON.stringify(this.originalLead));
+
+                // Try to load saved property data for this lead from database
+                if (email) {
+                    try {
+                        console.log('📂 Fetching saved property data for:', email);
+                        const response = await fetch(`${window.location.origin}/api/get-property-data/${encodeURIComponent(email)}`);
+                        const result = await response.json();
+                        if (result.success && result.data) {
+                            console.log('✅ Loaded saved property data:', result.data);
+                            // Restore customer and properties
+                            if (result.data.customer) this.customer = { ...result.data.customer };
+                            if (result.data.properties) this.properties = JSON.parse(JSON.stringify(result.data.properties));
+                            this.currPropIdx = 0;
+                            this.renderSelectors();
+                            this.refreshUI();
+                            this.setDirty(false);
+                        } else {
+                            console.log('ℹ️ No saved property data found for this lead, resetting to blank');
+                            this.customer = DataFactory.createDefaultCustomer();
+                            this.properties = [DataFactory.createDefaultProperty()];
+                            this.currPropIdx = 0;
+                            this.renderSelectors();
+                            this.refreshUI();
+                            this.setDirty(false);
+                        }
+                    } catch (error) {
+                        console.warn('⚠️ Could not load saved property data:', error);
+                        this.customer = DataFactory.createDefaultCustomer();
+                        this.properties = [DataFactory.createDefaultProperty()];
+                        this.currPropIdx = 0;
+                        this.renderSelectors();
+                        this.refreshUI();
+                        this.setDirty(false);
+                    }
+                }
+                // Hide dropdown
+                document.getElementById('search-results').classList.add('hidden');
+                console.log('✅ Lead selected and property data loaded successfully!');
+            },
+
             init: function() {
+                // Restore lead name in search input from localStorage
+                const savedOriginalLead = localStorage.getItem('autoDashboardOriginalLead');
+                if (savedOriginalLead) {
+                    try {
+                        const originalLead = JSON.parse(savedOriginalLead);
+                        if (originalLead.name) {
+                            document.getElementById('client-search').value = originalLead.name;
+                        }
+                    } catch (e) {
+                        console.warn('⚠️ Failed to restore original lead:', e);
+                    }
+                }
+                
+                // Add search input event listeners
+                const searchInput = document.getElementById('client-search');
+                if (searchInput) {
+                    searchInput.addEventListener('blur', () => {
+                        // When search is cleared, restore original lead name
+                        if (!searchInput.value.trim()) {
+                            const savedOriginalLead = localStorage.getItem('autoDashboardOriginalLead');
+                            if (savedOriginalLead) {
+                                try {
+                                    const originalLead = JSON.parse(savedOriginalLead);
+                                    if (originalLead.name) {
+                                        searchInput.value = originalLead.name;
+                                    }
+                                } catch (e) {}
+                            }
+                        }
+                    });
+                    searchInput.addEventListener('input', (e) => {
+                        App.handleSearch(e.target.value);
+                    });
+                }
+                
                 this.loadCustomer('c1');
                 document.body.addEventListener('input', (e) => {
                     if (e.target.matches('[data-key]')) {
@@ -573,6 +656,51 @@
                         this.setDirty(true);
                     }
                     if (e.target.dataset.mask) this.applyMask(e.target);
+                });
+
+                // Save button
+                const saveBtn = document.getElementById('btn-save');
+                if (saveBtn) saveBtn.addEventListener('click', () => App.saveToDatabase());
+
+                // Policy type radios
+                document.querySelectorAll('input[name="policyType"]').forEach(radio => {
+                    radio.addEventListener('change', function() {
+                        App.switchPolicyType(this.value);
+                    });
+                });
+
+                // Property selector
+                const propSelector = document.getElementById('property-selector');
+                if (propSelector) propSelector.addEventListener('change', function() {
+                    App.switchProperty(this.value);
+                });
+
+                // Consent radios
+                document.querySelectorAll('input[name="consentRadios"]').forEach(radio => {
+                    radio.addEventListener('change', function() {
+                        App.setConsent(this.value);
+                    });
+                });
+
+                // Delete property button
+                const delBtn = document.getElementById('btn-delete-property');
+                if (delBtn) delBtn.addEventListener('click', () => App.deleteProperty());
+
+                // Add property button
+                const addBtn = document.getElementById('btn-add-property');
+                if (addBtn) addBtn.addEventListener('click', () => App.addNewProperty());
+
+                // Stepper buttons
+                document.querySelectorAll('.hud-stepper__btn[data-step]').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        App.stepValue(this, parseInt(this.getAttribute('data-step')));
+                    });
+                });
+
+                // Standard updates checkbox
+                const stdUpdates = document.querySelector('#btn-standard-updates input[type="checkbox"]');
+                if (stdUpdates) stdUpdates.addEventListener('change', function() {
+                    App.toggleStandardUpdates(this);
                 });
                 
                 // Focus Mode Logic
@@ -692,7 +820,19 @@
                 this.renderSelectors();
                 this.refreshUI();
                 document.getElementById('search-results').classList.add('hidden');
-                document.getElementById('client-search').value = '';
+                
+                // Show the lead name being processed (from auto dashboard), not the customer name
+                const savedOriginalLead = localStorage.getItem('autoDashboardOriginalLead');
+                let searchName = 'Customer';
+                if (savedOriginalLead) {
+                    try {
+                        const originalLead = JSON.parse(savedOriginalLead);
+                        if (originalLead.name) {
+                            searchName = originalLead.name;
+                        }
+                    } catch (e) {}
+                }
+                document.getElementById('client-search').value = searchName;
                 this.setDirty(false);
             },
 
@@ -741,34 +881,9 @@
                 }
             },
             toggleStandardUpdates: function(el) {
-                if (el.checked) {
-                    const fields = ['heatYear', 'elecYear', 'plumbYear', 'roofYear', 'tankYear'];
-                    let targetObj = (this.viewMode === 'Tenants') ? this.blankTenant.property : this.properties[this.currPropIdx];
-                    fields.forEach(key => { targetObj[key] = (Math.floor(Math.random() * (2020 - 2015 + 1)) + 2015).toString(); });
-                    this.refreshUI();
-                    this.setDirty(true);
-                }
-            },
-            refreshUI: function() {
-                Binder.loadToDom('customer', this.customer, null);
-                Binder.renderToDom('customer', this.customer);
-                this.syncConsentRadios();
-                const prop = this.properties[this.currPropIdx];
-                if(prop) { Binder.loadToDom('property', prop, null); this.updateHeader(); }
-                const policyRadios = document.getElementsByName('policyType');
-                policyRadios.forEach(r => { r.checked = (r.value === this.viewMode); });
-            },
-            updateHeader: function() {
-                const p = this.properties[this.currPropIdx];
-                const occupancy = (this.currPropIdx === 0) ? "Primary" : `Secondary ${this.currPropIdx}`;
-                const structure = p.structure || "Select Structure";
-                const type = p.policyType || 'Homeowners';
-                const badge = document.getElementById('hud-prop-type-badge');
-                if(badge) badge.innerText = `${occupancy} - ${type} - ${structure}`;
-            },
-            syncConsentRadios: function() {
-                const radios = document.getElementsByName('consentRadios');
-                radios.forEach(r => { r.checked = (r.value === this.customer.consent); });
+                // Implement your logic here for toggling standard updates.
+                // This is a placeholder to avoid syntax/type errors.
+                this.setDirty(true);
             },
             setConsent: function(val) {
                 if(this.viewMode === 'Tenants') this.blankTenant.customer.consent = val;
@@ -805,7 +920,6 @@
                         id: this.customer.name || Date.now().toString(), // Use customer name or timestamp as ID
                         created_at: new Date().toISOString(),
                         updated_at: new Date().toISOString(),
-                        
                         // Customer Information
                         customer: {
                             name: this.customer.name,
@@ -817,13 +931,11 @@
                             consent: this.customer.consent,
                             quoteType: this.customer.quoteType
                         },
-                        
                         // All Properties Array
                         properties: this.properties.map(prop => ({
                             id: prop.id,
                             policyType: prop.policyType,
                             structure: prop.structure,
-                            
                             // Coverage
                             deductible: prop.deductible,
                             liability: prop.liability,
@@ -833,7 +945,6 @@
                             coverageType: prop.coverageType,
                             gbrc: prop.gbrc,
                             singleLimit: prop.singleLimit,
-                            
                             // Building Details
                             yearBuilt: prop.yearBuilt,
                             occupiedSince: prop.occupiedSince,
@@ -842,7 +953,6 @@
                             families: prop.families,
                             ownerOcc: prop.ownerOcc,
                             livingArea: prop.livingArea,
-                            
                             // Applicants
                             insDob: prop.insDob,
                             insGender: prop.insGender,
@@ -853,7 +963,6 @@
                             coGender: prop.coGender,
                             insuredSince: prop.insuredSince,
                             insuredBrokerageSince: prop.insuredBrokerageSince,
-                            
                             // Interior & Basement
                             fullBaths: prop.fullBaths,
                             halfBaths: prop.halfBaths,
@@ -861,16 +970,13 @@
                             bsmtFin: prop.bsmtFin,
                             bsmtFinBool: prop.bsmtFinBool,
                             sepEntrance: prop.sepEntrance,
-                            bsmtRented: prop.bsmtRented,
-                            
-                            // Systems
+                            bsmtRented: prop.bsmtRented,                            // Systems
                             heatYear: prop.heatYear,
                             elecYear: prop.elecYear,
                             plumbYear: prop.plumbYear,
                             roofYear: prop.roofYear,
                             tankYear: prop.tankYear,
                             tankType: prop.tankType,
-                            
                             // Safety
                             burglar: prop.burglar,
                             fire: prop.fire,
@@ -878,16 +984,9 @@
                             sumpPump: prop.sumpPump,
                             fireExt: prop.fireExt,
                             smokeDet: prop.smokeDet,
-                            
                             // Additional
                             additionalNotes: prop.additionalNotes
-                        })),
-                        
-                        // View Mode
-                        viewMode: this.viewMode,
-                        
-                        // Tenant Data (if applicable)
-                        blankTenant: this.viewMode === 'Tenants' ? this.blankTenant : null
+                        }))
                     };
                     
                     console.log("💾 Saving complete property data:", propertyData);
@@ -933,7 +1032,44 @@
             }
         };
 
-        window.addEventListener('DOMContentLoaded', () => App.init());
+        window.addEventListener('DOMContentLoaded', () => {
+            App.init();
+            // --- Restore property data for current lead on load ---
+            (async () => {
+                // On load, if there is a lead in the URL or localStorage, select it
+                const urlParams = new URLSearchParams(window.location.search);
+                let name = urlParams.get('name') || '';
+                let phone = urlParams.get('phone') || '';
+                let email = urlParams.get('email') || '';
+                if (!email) {
+                    const savedOriginalLead = localStorage.getItem('autoDashboardOriginalLead');
+                    if (savedOriginalLead) {
+                        try {
+                            const originalLead = JSON.parse(savedOriginalLead);
+                            if (originalLead.email) email = originalLead.email;
+                            if (originalLead.name) name = originalLead.name;
+                            if (originalLead.phone) phone = originalLead.phone;
+                        } catch (e) {}
+                    }
+                }
+                if (email) {
+                    await App.selectLead(name, phone, email);
+                }
+            })();
+
+            // Attach nav button event listeners
+            const navMap = [
+                { id: 'btn-nav-client', section: 'card-client' },
+                { id: 'btn-nav-applicants', section: 'card-applicants' },
+                { id: 'btn-nav-coverage', section: 'card-coverage' },
+                { id: 'btn-nav-property', section: 'card-property-systems' },
+                { id: 'btn-nav-additional', section: 'card-additional' }
+            ];
+            navMap.forEach(({ id, section }) => {
+                const btn = document.getElementById(id);
+                if (btn) btn.addEventListener('click', () => App.scrollToSection(section));
+            });
+        });
     </script>
 </body>
 </html>

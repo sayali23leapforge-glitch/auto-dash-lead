@@ -3,6 +3,16 @@ Meta/Facebook Lead Form Backend
 Integrates with Facebook Lead API and Supabase
 """
 
+import sys
+import io
+
+# Configure UTF-8 encoding for Windows console
+if sys.platform == 'win32':
+    import os
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 import os
 import json
 import requests
@@ -13,7 +23,8 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 import hmac
 import hashlib
-from .pdf_parser import parse_mvr_pdf, parse_dash_pdf
+# Import pdf_parser directly (standalone script)
+from pdf_parser import parse_mvr_pdf, parse_dash_pdf
 
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), '../.env.local'))
@@ -59,18 +70,25 @@ def verify_meta_webhook(data, hub_signature):
 
 
 def get_leads_from_meta():
-    """Fetch ALL leads from Meta Lead Form API with pagination"""
+    """Fetch all leads from Meta Lead Form API with pagination (up to 500 leads)"""
     try:
         all_leads = []
         url = f'{META_BASE_URL}/{META_LEAD_FORM_ID}/leads'
+        
+        # Try to get leads from Jan 12, 2026 onwards
+        from datetime import datetime, timezone
+        jan_12_timestamp = int(datetime(2026, 1, 12, 0, 0, 0, tzinfo=timezone.utc).timestamp())
+        
         params = {
             'fields': 'id,created_time,field_data,adgroup_id',
             'access_token': META_PAGE_ACCESS_TOKEN,
-            'limit': 100  # Max per page
+            'limit': 500,  # Request max leads
+            'filtering': f'[{{"field":"time_created","operator":"GREATER_THAN","value":{jan_12_timestamp}}}]'
         }
         
-        print(f"📞 Fetching leads from Meta API: {url}")
+        print(f"📞 Fetching leads from Meta API since Jan 12, 2026: {url}")
         print(f"🔑 Using Lead Form ID: {META_LEAD_FORM_ID}")
+        print(f"📅 Filtering from timestamp: {jan_12_timestamp}")
         
         # Fetch first page
         response = requests.get(url, params=params)
@@ -79,15 +97,25 @@ def get_leads_from_meta():
         
         data = response.json()
         all_leads.extend(data.get('data', []))
+        print(f"📄 Page 1: {len(data.get('data', []))} leads")
         
-        # Fetch remaining pages
-        while 'paging' in data and 'next' in data['paging']:
+        # Continue fetching all pages (max 500 total to avoid overwhelming)
+        page_count = 1
+        while 'paging' in data and 'next' in data['paging'] and len(all_leads) < 500:
+            page_count += 1
             next_url = data['paging']['next']
-            print(f"📄 Fetching next page...")
+            print(f"📄 Fetching page {page_count}... (Total so far: {len(all_leads)})")
             response = requests.get(next_url)
             response.raise_for_status()
             data = response.json()
-            all_leads.extend(data.get('data', []))
+            page_leads = data.get('data', [])
+            all_leads.extend(page_leads)
+            print(f"   + {len(page_leads)} leads")
+            
+            # Safety limit
+            if page_count > 10:
+                print(f"⚠️ Reached page limit (10 pages)")
+                break
         
         print(f"✅ Found {len(all_leads)} total leads from Meta")
         return all_leads
@@ -114,7 +142,7 @@ def parse_meta_lead(meta_lead):
     meta_lead_id = meta_lead.get('id')
     
     return {
-        'id': meta_lead_id,  # Use meta_lead_id as id for frontend compatibility
+        # Don't set 'id' - let database auto-generate it
         'meta_lead_id': meta_lead_id,
         'name': lead_dict.get('full_name', lead_dict.get('name', 'Unknown')),
         'phone': lead_dict.get('phone_number', lead_dict.get('phone', '')),
@@ -129,13 +157,8 @@ def parse_meta_lead(meta_lead):
         'premium': 0,
         'sync_status': 'Not Synced',
         'sync_signal': False,
-        'notes': '',
-        'company': lead_dict.get('company', ''),
-        'address': lead_dict.get('address', ''),
-        'city': lead_dict.get('city', ''),
-        'state': lead_dict.get('state', ''),
-        'country': lead_dict.get('country', ''),
-        'zip_code': lead_dict.get('zip_code', '')
+        'notes': ''
+        # Removed: company, address, city, state, country, zip_code - not in database schema
     }
 
 
@@ -151,11 +174,14 @@ def save_lead_to_supabase(lead_data):
                 return existing.data[0]
         
         # Insert new lead
+        print(f"🔄 Attempting to save lead: {lead_data.get('name')}")
         response = supabase.table('leads').insert(lead_data).execute()
         print(f"💾 Saved lead: {lead_data.get('name')} (ID: {response.data[0].get('id') if response.data else 'N/A'})")
         return response.data[0] if response.data else None
     except Exception as e:
         print(f"❌ Error saving lead to Supabase: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -243,41 +269,159 @@ def health():
 
 @app.route('/api/leads', methods=['GET'])
 def get_leads():
-    """Get leads from database (instant load)"""
-    filters = {}
-    if request.args.get('type'):
-        filters['type'] = request.args.get('type')
-    if request.args.get('status'):
-        filters['status'] = request.args.get('status')
-    
-    print("📊 Loading leads from database (instant)...")
-    
-    # Get from database (instant)
-    leads = get_leads_from_db(filters)
-    
-    print(f"📤 Returning {len(leads)} leads from database")
-    return jsonify({'data': leads, 'count': len(leads)}), 200
+    """Get leads from database for instant load"""
+    try:
+        filters = {}
+        if request.args.get('type'):
+            filters['type'] = request.args.get('type')
+        if request.args.get('status'):
+            filters['status'] = request.args.get('status')
+        
+        print("📊 Loading leads from database (instant)...")
+        leads = get_leads_from_db(filters)
+        
+        print(f"📤 Returning {len(leads)} leads from database")
+        return jsonify({'data': leads, 'count': len(leads)}), 200
+        
+    except Exception as e:
+        print(f"❌ Error loading leads from database: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/leads/sync', methods=['POST'])
 def sync_leads():
-    """Fetch latest leads from Meta and save to Supabase"""
+    """Fetch fresh leads from Facebook and save to database"""
     try:
-        meta_leads = get_leads_from_meta()
-        saved_leads = []
+        print("📞 Fetching fresh leads from Facebook API...")
         
+        # Fetch from Facebook
+        meta_leads = get_leads_from_meta()
+        print(f"✅ Fetched {len(meta_leads)} leads from Facebook")
+        
+        # Parse and save
+        new_leads = []
         for meta_lead in meta_leads:
             parsed_lead = parse_meta_lead(meta_lead)
             saved = save_lead_to_supabase(parsed_lead)
             if saved:
-                saved_leads.append(saved)
+                new_leads.append(parsed_lead)
+        
+        print(f"💾 Saved {len(new_leads)} new leads to database")
         
         return jsonify({
             'success': True,
-            'message': f'Synced {len(saved_leads)} leads from Meta',
-            'leads': saved_leads
+            'message': f'Synced {len(new_leads)} new leads from Facebook',
+            'leads': new_leads,
+            'count': len(new_leads)
         }), 200
-    
+        
+    except Exception as e:
+        print(f"❌ Error syncing from Facebook: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/leads/debug-meta', methods=['GET'])
+def debug_meta_leads():
+    """Debug endpoint to see raw Facebook API response"""
+    try:
+        meta_leads = get_leads_from_meta()
+        # Get first 10 leads with their names
+        debug_info = []
+        for lead in meta_leads[:10]:
+            parsed = parse_meta_lead(lead)
+            debug_info.append({
+                'id': lead.get('id'),
+                'created_time': lead.get('created_time'),
+                'name': parsed.get('name'),
+                'email': parsed.get('email'),
+                'phone': parsed.get('phone')
+            })
+        
+        return jsonify({
+            'success': True,
+            'total_from_facebook': len(meta_leads),
+            'first_10_leads': debug_info
+        }), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/leads/test-save-one', methods=['POST'])
+def test_save_one_lead():
+    """Test saving one lead from Facebook"""
+    try:
+        meta_leads = get_leads_from_meta()
+        if not meta_leads:
+            return jsonify({'success': False, 'error': 'No leads from Facebook'}), 400
+        
+        # Try to save the first lead
+        first_lead = meta_leads[0]
+        parsed = parse_meta_lead(first_lead)
+        
+        # Try to save directly with better error handling
+        try:
+            if parsed.get('meta_lead_id'):
+                existing = supabase.table('leads').select('id').eq('meta_lead_id', parsed.get('meta_lead_id')).execute()
+                if existing.data:
+                    return jsonify({
+                        'success': True,
+                        'message': f'Lead already exists: {parsed.get("name")}',
+                        'existing': True
+                    }), 200
+            
+            # Try insert
+            response = supabase.table('leads').insert(parsed).execute()
+            
+            if response.data:
+                return jsonify({
+                    'success': True,
+                    'message': f'Successfully saved lead: {parsed.get("name")}',
+                    'lead': response.data[0]
+                }), 200
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': 'No data returned from insert',
+                    'lead_data': parsed
+                }), 500
+                
+        except Exception as save_error:
+            import traceback
+            return jsonify({
+                'success': False,
+                'message': f'Failed to save lead: {parsed.get("name")}',
+                'error': str(save_error),
+                'traceback': traceback.format_exc(),
+                'lead_data': parsed
+            }), 500
+            
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
+
+
+@app.route('/api/leads/check-forms', methods=['GET'])
+def check_lead_forms():
+    """Check all lead forms on the page"""
+    try:
+        url = f'{META_BASE_URL}/{META_PAGE_ID}/leadgen_forms'
+        params = {
+            'fields': 'id,name,status,leads_count',
+            'access_token': META_PAGE_ACCESS_TOKEN
+        }
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        
+        return jsonify({
+            'success': True,
+            'forms': data.get('data', []),
+            'current_form_id': META_LEAD_FORM_ID
+        }), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -386,9 +530,37 @@ def update_lead(lead_id):
 def delete_lead(lead_id):
     """Delete lead"""
     try:
+        # Delete from clients_data and properties_data first
+        supabase.table('clients_data').delete().eq('lead_id', lead_id).execute()
+        supabase.table('properties_data').delete().eq('lead_id', lead_id).execute()
+        # Then delete from leads
         supabase.table('leads').delete().eq('id', lead_id).execute()
+        return jsonify({'success': True, 'message': 'Lead and all related data deleted'}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/leads/clear-all', methods=['POST'])
+def clear_all_leads():
+    """Delete all leads from database"""
+    try:
+        # Get all lead IDs first
+        all_leads = supabase.table('leads').select('id').execute()
         
-        return jsonify({'success': True, 'message': 'Lead deleted'}), 200
+        if all_leads.data:
+            # Delete each lead
+            for lead in all_leads.data:
+                supabase.table('leads').delete().eq('id', lead['id']).execute()
+            
+            return jsonify({
+                'success': True, 
+                'message': f'Cleared {len(all_leads.data)} leads from database'
+            }), 200
+        else:
+            return jsonify({
+                'success': True, 
+                'message': 'Database already empty'
+            }), 200
     
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -538,7 +710,7 @@ def parse_dash():
 
 @app.route('/api/save-client', methods=['POST'])
 def save_client():
-    """Save complete client data to Supabase"""
+    """Save complete client data to Supabase linked to a lead"""
     try:
         data = request.json
         
@@ -546,48 +718,251 @@ def save_client():
             return jsonify({'success': False, 'error': 'No data provided'}), 400
         
         print(f"💾 Saving client data to Supabase...")
-        print(f"📊 Data received: {json.dumps(data, indent=2)[:500]}...")
+        print(f"📊 Data received keys: {list(data.keys())}")
+        print(f"📊 Received drivers: {len(data.get('drivers', []))} driver(s)")
         
-        # Insert or update in Supabase clients table
-        result = supabase.table('clients').upsert(data).execute()
+        # Get email/phone/name to identify the lead
+        email = None
+        phone = None
+        name = None
         
-        print(f"✅ Client saved successfully")
+        if data.get('drivers') and len(data['drivers']) > 0:
+            driver = data['drivers'][0]
+            print(f"🔍 First driver keys: {list(driver.keys())[:5]}...")
+            email = driver.get('personalEmail')
+            phone = driver.get('personalMobile')
+            name = driver.get('personalName') or driver.get('mainName')
+            print(f"✓ Extracted - Email: {email}, Phone: {phone}, Name: {name}")
+        else:
+            print(f"⚠️ No drivers data found in request")
+        
+        print(f"📋 Lead info - Name: {name}, Email: {email}, Phone: {phone}")
+        
+        # Find lead by email, phone, or name
+        lead_id = None
+        
+        # Try email first
+        if email:
+            try:
+                result = supabase.table('leads').select('id').eq('email', email).limit(1).execute()
+                if result.data and len(result.data) > 0:
+                    lead_id = result.data[0]['id']
+                    print(f"✅ Found lead by email {email}: {lead_id}")
+            except Exception as e:
+                print(f"⚠️ Error finding lead by email: {str(e)}")
+        
+        # Try phone if email didn't work
+        if not lead_id and phone:
+            try:
+                result = supabase.table('leads').select('id').eq('phone', phone).limit(1).execute()
+                if result.data and len(result.data) > 0:
+                    lead_id = result.data[0]['id']
+                    print(f"✅ Found lead by phone {phone}: {lead_id}")
+            except Exception as e:
+                print(f"⚠️ Error finding lead by phone: {str(e)}")
+        
+        # Try name if still not found
+        if not lead_id and name:
+            try:
+                result = supabase.table('leads').select('id').eq('name', name).limit(1).execute()
+                if result.data and len(result.data) > 0:
+                    lead_id = result.data[0]['id']
+                    print(f"✅ Found lead by name {name}: {lead_id}")
+            except Exception as e:
+                print(f"⚠️ Error finding lead by name: {str(e)}")
+        
+        if not lead_id:
+            print(f"⚠️ No lead found with email={email}, phone={phone}, name={name}")
+        
+        # Prepare data for storage - only include columns that exist in table
+        save_data = {
+            'email': email,
+            'drivers': data.get('drivers', []),
+            'updated_at': datetime.utcnow().isoformat()
+        }
+        
+        # Add lead_id if found
+        if lead_id:
+            save_data['lead_id'] = lead_id
+        
+        print(f"💾 INSERT/UPDATE STEP - lead_id: {lead_id}, email: {email}, phone: {phone}")
+        print(f"📦 Data to save keys: {list(save_data.keys())}")
+        print(f"📦 Drivers count: {len(save_data.get('drivers', []))}")
+        
+        # Insert or update in clients_data table
+        if email:
+            print(f"💡 Saving client data by email: {email} (lead_id: {lead_id})")
+            try:
+                # Prefer to update by lead_id if found, else by email
+                if lead_id:
+                    result = supabase.table('clients_data').select('id').eq('lead_id', lead_id).limit(1).execute()
+                    if result.data and len(result.data) > 0:
+                        print(f"🔄 Existing record found for lead {lead_id}, updating...")
+                        save_result = supabase.table('clients_data').update(save_data).eq('lead_id', lead_id).execute()
+                        print(f"✅ Updated existing client data for lead {lead_id}")
+                    else:
+                        print(f"📝 No existing record for lead {lead_id}, inserting new...")
+                        save_result = supabase.table('clients_data').insert(save_data).execute()
+                        print(f"✅ Inserted new client data for lead {lead_id}")
+                        if save_result.data:
+                            print(f"   Inserted ID: {save_result.data[0].get('id')}")
+                else:
+                    # Always upsert by email if no lead_id
+                    result = supabase.table('clients_data').select('id').eq('email', email).limit(1).execute()
+                    if result.data and len(result.data) > 0:
+                        print(f"🔄 Existing record found for email {email}, updating...")
+                        save_result = supabase.table('clients_data').update(save_data).eq('email', email).execute()
+                        print(f"✅ Updated client data by email {email}")
+                    else:
+                        print(f"📝 No existing record for email {email}, inserting new...")
+                        save_result = supabase.table('clients_data').insert(save_data).execute()
+                        print(f"✅ Inserted new client data by email {email}")
+                        if save_result.data:
+                            print(f"   Inserted ID: {save_result.data[0].get('id')}")
+            except Exception as e:
+                print(f"❌ Error saving client data: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                save_result = None
+        else:
+            print(f"❌ Cannot save - no email available in drivers")
+            return jsonify({
+                'success': False,
+                'error': 'Cannot save without email'
+            }), 400
+        
+        print(f"✅ Client data save operation completed")
+        
+        # Verify data was actually saved
+        try:
+            verify_result = supabase.table('clients_data').select('count', count='exact').execute()
+            print(f"📊 Total clients_data rows in DB: {verify_result.count}")
+        except Exception as e:
+            print(f"⚠️ Could not verify save: {str(e)}")
+        
         return jsonify({
             'success': True,
             'message': 'Client data saved successfully',
-            'data': result.data
+            'lead_id': lead_id,
+            'email': email,
+            'phone': phone
         }), 200
         
     except Exception as e:
         print(f"❌ Error saving client: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'error': f'Failed to save client: {str(e)}'
         }), 500
 
 
+@app.route('/api/get-client-data/<query>', methods=['GET'])
+def get_client_data(query):
+    """Retrieve saved client data by email or lead ID"""
+    try:
+        print(f"📂 Retrieving client data for: {query}")
+        
+        # Try to find by lead_id first (if valid UUID format)
+        try:
+            if len(query) == 36 and query.count('-') == 4:  # UUID format check
+                result = supabase.table('clients_data').select('*').eq('lead_id', query).limit(1).execute()
+                if result.data and len(result.data) > 0:
+                    print(f"✅ Found client data by lead_id: {query}")
+                    return jsonify({
+                        'success': True,
+                        'data': result.data[0]
+                    }), 200
+        except Exception as e:
+            print(f"⚠️ Error searching by lead_id: {str(e)}")
+        
+        # Try to find by email (primary search)
+        try:
+            result = supabase.table('clients_data').select('*').eq('email', query).limit(1).execute()
+            if result.data and len(result.data) > 0:
+                print(f"✅ Found client data by email: {query}")
+                return jsonify({
+                    'success': True,
+                    'data': result.data[0]
+                }), 200
+        except Exception as e:
+            print(f"⚠️ Error searching by email: {str(e)}")
+        
+        print(f"⚠️ No client data found for: {query}")
+        return jsonify({
+            'success': False,
+            'error': 'No data found',
+            'data': None
+        }), 404
+        
+    except Exception as e:
+        print(f"❌ Error retrieving client data: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': f'Failed to retrieve client data: {str(e)}'
+        }), 500
+
+
+
+@app.route('/api/save-property', methods=['POST'])
+
+@app.route('/api/get-property-data/<query>', methods=['GET'])
+def get_property_data(query):
+    """Retrieve saved property data by email or lead ID"""
+    try:
+        print(f"📂 Retrieving property data for: {query}")
+        # Try to find by email (primary search)
+        try:
+            result = supabase.table('properties').select('*').eq('customer->>email', query).limit(1).execute()
+            if result.data and len(result.data) > 0:
+                print(f"✅ Found property data by email: {query}")
+                return jsonify({
+                    'success': True,
+                    'data': result.data[0]
+                }), 200
+        except Exception as e:
+            print(f"⚠️ Error searching by email: {str(e)}")
+        print(f"⚠️ No property data found for: {query}")
+        return jsonify({
+            'success': False,
+            'error': 'No data found',
+            'data': None
+        }), 404
+    except Exception as e:
+        print(f"❌ Error retrieving property data: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': f'Failed to retrieve property data: {str(e)}'
+        }), 500
+
 @app.route('/api/save-property', methods=['POST'])
 def save_property():
-    """Save complete property data to Supabase"""
+    """Save complete property data to Supabase, upsert by customer email"""
     try:
         data = request.json
-        
         if not data:
             return jsonify({'success': False, 'error': 'No data provided'}), 400
-        
         print(f"🏠 Saving property data to Supabase...")
         print(f"📊 Data received: {json.dumps(data, indent=2)[:500]}...")
-        
-        # Insert or update in Supabase properties table
-        result = supabase.table('properties').upsert(data).execute()
-        
-        print(f"✅ Property saved successfully")
+        # Extract email from customer object
+        email = ''
+        if 'customer' in data and isinstance(data['customer'], dict):
+            email = data['customer'].get('email', '').strip().lower()
+        if not email:
+            return jsonify({'success': False, 'error': 'No email found in customer data'}), 400
+        # Upsert by customer email
+        result = supabase.table('properties').upsert(data, on_conflict=['customer->>email']).execute()
+        print(f"✅ Property saved successfully for email: {email}")
         return jsonify({
             'success': True,
             'message': 'Property data saved successfully',
             'data': result.data
         }), 200
-        
     except Exception as e:
         print(f"❌ Error saving property: {str(e)}")
         return jsonify({
@@ -607,4 +982,5 @@ if __name__ == '__main__':
         print("Note: Ensure 'leads' table exists in Supabase")
     
     port = int(os.getenv('FLASK_PORT', 5000))
-    app.run(debug=True, port=port, host='0.0.0.0')
+    # Disable use_reloader to avoid issues on Windows
+    app.run(debug=True, port=port, host='0.0.0.0', use_reloader=False)

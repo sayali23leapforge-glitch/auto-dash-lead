@@ -283,24 +283,16 @@
                                 </div>
                             </div>
                             
-                            <!-- Full Width Convictions -->
-                            <div class="pt-6 border-t border-dashed border-slate-100 space-y-5">
+                            <!-- Convictions Section -->
+                            <div class="pt-6 border-t border-dashed border-slate-100 space-y-4">
                                 <div class="flex items-center gap-4 hud__field-row">
                                     <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label"># Convictions</div>
-                                    <div class="flex-1"><input type="number" data-key="mvrConvictions" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-bold text-slate-700" placeholder="0"></div>
+                                    <div class="flex-1"><input type="number" data-key="mvrConvictionsCount" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-bold text-slate-700" placeholder="0" readonly></div>
                                 </div>
-                                <div class="flex items-start gap-4 hud__field-row">
-                                    <div class="w-24 text-[10px] font-bold text-slate-500 uppercase text-right pt-2 hud__field-label">Conviction</div>
-                                    <div class="flex-1 flex gap-4">
-                                        <div class="w-28 shrink-0">
-                                            <label class="block text-[9px] text-slate-400 uppercase mb-1">Last Date</label>
-                                            <input type="text" data-key="mvrConvictionDate" data-mask="date" class="hud__input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-mono font-bold text-slate-800" placeholder="MM/DD/YYYY">
-                                        </div>
-                                        <div class="flex-1">
-                                            <label class="block text-[9px] text-slate-400 uppercase mb-1">Description</label>
-                                            <textarea data-key="mvrConvictionDesc" rows="2" class="hud__textarea w-full bg-transparent border border-dashed border-slate-300 rounded p-1.5 text-xs font-medium text-slate-700 focus:border-indigo-500 focus:outline-none transition-colors resize-none placeholder-slate-300 leading-tight" placeholder="Enter full conviction details..."></textarea>
-                                        </div>
-                                    </div>
+                                
+                                <!-- Convictions List Container -->
+                                <div id="mvr-convictions-container" class="space-y-3 mt-4">
+                                    <!-- Convictions will be populated here dynamically -->
                                 </div>
                             </div>
                         </div>
@@ -561,6 +553,11 @@
                 document.body.addEventListener('input', (e) => this.handleInput(e));
                 document.body.addEventListener('change', (e) => this.handleInput(e));
                 
+                // Auto-save to localStorage before leaving page
+                window.addEventListener('beforeunload', () => {
+                    this.saveToLocalStorage();
+                });
+                
                 // Highlight Mini Nav on Scroll
                 const scrollContainer = document.getElementById('right-panel-scroll');
                 scrollContainer.addEventListener('scroll', () => {
@@ -600,12 +597,37 @@
             initNewClient: function() {
                 console.log('🚀 initNewClient started');
                 
+                // Check for URL parameters FIRST (from meta dashboard)
+                const urlParams = new URLSearchParams(window.location.search);
+                const hasUrlParams = urlParams.has('name') || urlParams.has('phone') || urlParams.has('email');
+                
+                // If no URL params, try to restore from localStorage
+                if (!hasUrlParams) {
+                    const savedData = localStorage.getItem('autoDashboardDrivers');
+                    const savedOriginalLead = localStorage.getItem('autoDashboardOriginalLead');
+                    if (savedData) {
+                        try {
+                            this.drivers = JSON.parse(savedData);
+                            this.currDrvIdx = parseInt(localStorage.getItem('autoDashboardCurrDrvIdx') || '0');
+                            if (savedOriginalLead) {
+                                this.originalLead = JSON.parse(savedOriginalLead);
+                            }
+                            console.log('✅ Restored drivers from localStorage');
+                            console.log('✅ Restored originalLead:', this.originalLead);
+                            this.renderSelectors();
+                            this.refreshUI();
+                            return;
+                        } catch (e) {
+                            console.warn('⚠️ Failed to restore from localStorage:', e);
+                        }
+                    }
+                }
+                
+                // Create new client
                 this.drivers = [this.createDriver(1)];
                 this.drivers[0].mainRel = 'Principal';
                 this.currDrvIdx = 0; 
                 
-                // Check for URL parameters FIRST (from meta dashboard)
-                const urlParams = new URLSearchParams(window.location.search);
                 const name = urlParams.get('name');
                 const phone = urlParams.get('phone');
                 const email = urlParams.get('email');
@@ -687,6 +709,66 @@
                         }
                     }, 100);
                 }
+                
+                // FETCH SAVED DATA FROM DATABASE (if email present)
+                if (email) {
+                    console.log('🔍 Fetching saved data for email:', email);
+                    setTimeout(() => {
+                        fetch(`/api/get-client-data/${encodeURIComponent(email)}`)
+                            .then(response => {
+                                if (response.status === 200) {
+                                    return response.json();
+                                } else {
+                                    console.log('⚠️ No saved data found (404)');
+                                    return { success: false };
+                                }
+                            })
+                            .then(result => {
+                                if (result.success && result.data) {
+                                    console.log('✅ RESTORING DATA FROM DATABASE');
+                                    const savedData = result.data;
+                                    
+                                    // Restore drivers array
+                                    if (savedData.drivers && Array.isArray(savedData.drivers)) {
+                                        this.drivers = JSON.parse(JSON.stringify(savedData.drivers));
+                                        this.currDrvIdx = 0;
+                                        console.log('✅ Restored', this.drivers.length, 'drivers from database');
+                                        // Re-render with restored data
+                                        this.renderSelectors();
+                                        this.refreshUI();
+
+                                        // --- Ensure gap calculation fields are set from driver data before recalculation ---
+                                        const drv = this.drivers[this.currDrvIdx];
+                                        const gapStartField = document.querySelector('[data-key="gapStart"]');
+                                        const gapEndField = document.querySelector('[data-key="gapEnd"]');
+                                        if (gapStartField) {
+                                            gapStartField.value = drv.gapStart || '';
+                                            console.log('[GAP RESTORE] Set gapStart input from driver data:', drv.gapStart);
+                                        }
+                                        if (gapEndField) {
+                                            gapEndField.value = drv.gapEnd || '';
+                                            console.log('[GAP RESTORE] Set gapEnd input from driver data:', drv.gapEnd);
+                                        }
+
+                                        // Explicitly recalculate insurance gap after restoring fields
+                                        setTimeout(() => {
+                                            console.log('[GAP RESTORE] About to recalculate insurance gap with:', {
+                                                gapStart: gapStartField?.value,
+                                                gapEnd: gapEndField?.value
+                                            });
+                                            this.calcInsuranceGap();
+                                        }, 0);
+                                        console.log('✅ UI refreshed with restored data and insurance gap recalculated');
+                                    }
+                                } else {
+                                    console.log('⚠️ No data to restore from database');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('❌ Error fetching saved data:', error);
+                            });
+                    }, 500); // Give page a moment to fully load first
+                }
             },
 
             handleGlobalEvent: function(e) {
@@ -765,17 +847,60 @@
 
             refreshUI: function() {
                 const drv = this.drivers[this.currDrvIdx];
-                document.querySelectorAll('.hud__input').forEach(i => { 
-                    if(i.type !== 'radio' && i.type !== 'checkbox') i.value = ''; 
-                    i.classList.remove('hud__input--valid', 'hud__input--invalid'); 
+
+                // Preserve search input value before clearing
+                const searchInput = document.getElementById('client-search');
+                const searchValue = searchInput ? searchInput.value : '';
+
+                document.querySelectorAll('.hud__input').forEach(i => {
+                    if(i.type !== 'radio' && i.type !== 'checkbox' && i.id !== 'client-search') {
+                        i.value = '';
+                    }
+                    i.classList.remove('hud__input--valid', 'hud__input--invalid');
                 });
+
+                // Restore search input value
+                if (searchInput) {
+                    searchInput.value = searchValue;
+                }
+
                 Binder.loadToDom('driver', drv);
                 this.renderVehicleCards(drv.vehicles);
                 drv.vehicles.forEach((v, i) => Binder.loadToDom(`vehicle-${i}`, v));
                 this.updateFileUI('dash', drv.files?.dash);
                 this.updateFileUI('mvr', drv.files?.mvr);
+
+                // --- Ensure gap calculation fields are set from driver data ---
+                const gapStartField = document.querySelector('[data-key="gapStart"]');
+                const gapEndField = document.querySelector('[data-key="gapEnd"]');
+                if (gapStartField) gapStartField.value = drv.gapStart || '';
+                if (gapEndField) gapEndField.value = drv.gapEnd || '';
+
+                // Always render claims section after restore
+                this.renderClaimSections(drv.claims || []);
+
                 this.updateLicenceGaps();
-                this.calcInsuranceGap();
+                // Calculate insurance gap AFTER setting input fields, with extra delay to ensure DOM is updated
+                setTimeout(() => {
+                    // Re-read values from DOM to ensure calculation uses latest
+                    const gapStartVal = gapStartField ? gapStartField.value : '';
+                    const gapEndVal = gapEndField ? gapEndField.value : '';
+                    console.log('[GAP RESTORE] (DELAYED) About to recalculate insurance gap with:', { gapStart: gapStartVal, gapEnd: gapEndVal });
+                    this.calcInsuranceGap();
+                }, 50);
+                this.saveToLocalStorage();
+            },
+
+            saveToLocalStorage: function() {
+                try {
+                    localStorage.setItem('autoDashboardDrivers', JSON.stringify(this.drivers));
+                    localStorage.setItem('autoDashboardCurrDrvIdx', this.currDrvIdx.toString());
+                    if (this.originalLead) {
+                        localStorage.setItem('autoDashboardOriginalLead', JSON.stringify(this.originalLead));
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Failed to save to localStorage:', e);
+                }
             },
 
             renderSelectors: function() {
@@ -1049,7 +1174,16 @@
                             }
                             
                             // Section 5: Driver Information
-                            if (data.name) drv.drvName = data.name;
+                            // Only set drvName from DASH if not already manually entered
+                            if (data.name && !drv.drvName) {
+                                drv.drvName = data.name;
+                                // Also sync to sidebar mainName if not already set
+                                if (!drv.mainName) {
+                                    drv.mainName = data.name;
+                                }
+                            } else if (data.name && drv.drvName) {
+                                console.log('✓ Preserving manually entered driver name:', drv.drvName);
+                            }
                             if (data.dob) drv.drvDob = data.dob;  // Date of Birth in Driver Info
                             if (data.years_continuous_insurance) {
                                 drv.drvContIns = data.years_continuous_insurance;
@@ -1093,6 +1227,12 @@
                             }
                             
                             // Section 7: Gap Calculation fields
+                            // Store all policies for gap calculation
+                            if (data.all_policies && data.all_policies.length > 0) {
+                                drv.allPolicies = data.all_policies;
+                                console.log(`✅ Stored ${data.all_policies.length} policies for gap calculation:`, data.all_policies);
+                            }
+                            
                             if (data.policy_start_date) {
                                 drv.gapStart = data.policy_start_date;  // Gap Calculation Start
                                 console.log('✅ Set Gap Start:', data.policy_start_date);
@@ -1132,7 +1272,9 @@
                             }
                             
                             // Calculate insurance gap after UI refresh
-                            if (data.policy_start_date && data.policy_end_date) {
+                            if (drv.allPolicies && drv.allPolicies.length >= 2) {
+                                setTimeout(() => this.calcInsuranceGap(), 100);
+                            } else if (data.policy_start_date && data.policy_end_date) {
                                 setTimeout(() => this.calcInsuranceGap(), 100);
                             }
                             
@@ -1198,23 +1340,24 @@
                             
                             // Convictions
                             if (data.convictions_count) {
-                                drv.mvrConvictions = data.convictions_count;
+                                drv.mvrConvictionsCount = data.convictions_count;
                                 console.log('✅ Set Conviction Count from MVR:', data.convictions_count);
                             }
                             if (data.convictions && data.convictions.length > 0) {
-                                // Get the last/most recent conviction
-                                const lastConviction = data.convictions[data.convictions.length - 1];
-                                drv.mvrConvictionDate = lastConviction.date;
-                                
-                                // Build description: list all convictions
-                                const convList = data.convictions.map((c, i) => `${i+1}. ${c.date}: ${c.description}`).join('\n');
-                                drv.mvrConvictionDesc = convList;
+                                drv.convictionsList = data.convictions;
                                 console.log('✅ Set Convictions from MVR:', data.convictions.length, 'convictions');
-                            } else if (data.convictions_count === '0') {
+                                // Render the convictions list
+                                setTimeout(() => {
+                                    this.renderConvictions(data.convictions);
+                                }, 100);
+                            } else if (data.convictions_count === '0' || data.convictions_count === 0) {
                                 // No convictions
-                                drv.mvrConvictionDate = '';
-                                drv.mvrConvictionDesc = 'No convictions';
+                                drv.convictionsList = [];
                                 console.log('✅ No convictions found in MVR');
+                                // Render empty convictions (shows "no convictions" message)
+                                setTimeout(() => {
+                                    this.renderConvictions([]);
+                                }, 100);
                             }
                             
                             // Refresh UI to show populated fields for MVR
@@ -1373,6 +1516,40 @@
                 }, 0);
             },
 
+            renderConvictions: function(convictions) {
+                const container = document.getElementById('mvr-convictions-container');
+                if (!container) {
+                    console.error('mvr-convictions-container not found');
+                    return;
+                }
+                
+                container.innerHTML = '';
+                
+                // Handle no convictions case
+                if (!convictions || convictions.length === 0) {
+                    container.innerHTML = '<div class="bg-green-50 border-l-4 border-green-400 p-3 rounded text-sm font-medium text-green-800">✓ No convictions on record</div>';
+                    console.log('No convictions to render');
+                    return;
+                }
+                
+                console.log(`📋 Rendering ${convictions.length} conviction(s)`);
+                
+                convictions.forEach((conviction, index) => {
+                    const convictionHTML = `
+                        <div class="bg-indigo-900 rounded-lg border border-indigo-700 p-4 conviction-item" data-conviction-index="${index}">
+                            <div class="flex items-start justify-between mb-3">
+                                <span class="inline-block text-xs font-bold bg-indigo-700 text-white px-2 py-1 rounded">#${index + 1}</span>
+                                <span class="text-xs font-mono font-bold text-indigo-300">${conviction.date || 'N/A'}</span>
+                            </div>
+                            <div class="text-sm font-medium text-white leading-relaxed">${conviction.description || 'No description'}</div>
+                        </div>
+                    `;
+                    container.innerHTML += convictionHTML;
+                });
+                
+                console.log(`✓ Rendered ${convictions.length} conviction(s)`);
+            },
+
             // Licence Calculation Logic
             calcExpDates: function() {
                 const drv = this.drivers[this.currDrvIdx];
@@ -1458,35 +1635,97 @@
 
             calcInsuranceGap: function() {
                 const drv = this.drivers[this.currDrvIdx];
-                const startStr = drv.gapStart;
-                const endStr = drv.gapEnd;
-                
                 const outField = document.getElementById('gap-days-output');
                 if(!outField) return;
 
-                if (!startStr || !endStr || startStr.length !== 10 || endStr.length !== 10) {
-                    outField.value = "0 Days";
+                // Always read from input fields for up-to-date values
+                // (Only declare gapStartField and gapEndField ONCE)
+                const gapStartField = document.querySelector('[data-key="gapStart"]');
+                const gapEndField = document.querySelector('[data-key="gapEnd"]');
+                const startStr = gapStartField ? gapStartField.value : '';
+                const endStr = gapEndField ? gapEndField.value : '';
+
+                // Check if we have all policies data
+                if (!drv.allPolicies || drv.allPolicies.length < 2) {
+                    // Fallback to old logic if no policies data
+                    if (!startStr || !endStr || startStr.length !== 10 || endStr.length !== 10) {
+                        outField.value = "0 Days";
+                        return;
+                    }
+
+                    const dStart = new Date(startStr);
+                    const dEnd = new Date(endStr);
+
+                    if (isNaN(dStart) || isNaN(dEnd)) {
+                        outField.value = "Invalid Date";
+                        return;
+                    }
+
+                    const diffTime = dStart - dEnd;
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                    if (diffDays > 0) {
+                        outField.value = `${diffDays} Days Gap`;
+                        outField.classList.add('text-rose-600');
+                        outField.classList.remove('text-slate-700');
+                    } else {
+                        outField.value = "0 Days"; 
+                        outField.classList.remove('text-rose-600');
+                        outField.classList.add('text-slate-700');
+                    }
                     return;
                 }
 
-                const dStart = new Date(startStr);
-                const dEnd = new Date(endStr);
-
-                if (isNaN(dStart) || isNaN(dEnd)) {
+                // NEW LOGIC: Calculate gap between last policy END date and second-to-last policy END date
+                // Sort policies by number (descending) to get latest first
+                const sortedPolicies = [...drv.allPolicies].sort((a, b) => b.number - a.number);
+                
+                console.log('📊 Calculating gap from policies:', sortedPolicies);
+                
+                // Get last policy (highest number/most recent) and previous policy
+                const lastPolicy = sortedPolicies[0];  // e.g., Policy #9 (latest)
+                const previousPolicy = sortedPolicies[1];  // e.g., Policy #8 (second to last)
+                
+                console.log(`Gap calculation:`);
+                console.log(`  Last policy (#${lastPolicy.number}) - End of Latest Term: ${lastPolicy.end_date}`);
+                console.log(`  Previous policy (#${previousPolicy.number}) - End of Latest Term: ${previousPolicy.end_date}`);
+                
+                // Gap = Last policy end date - Previous policy end date
+                const lastPolicyEnd = new Date(lastPolicy.end_date);
+                const prevPolicyEnd = new Date(previousPolicy.end_date);
+                
+                if (isNaN(lastPolicyEnd) || isNaN(prevPolicyEnd)) {
                     outField.value = "Invalid Date";
                     return;
                 }
-
-                const diffTime = dStart - dEnd;
+                
+                // Calculate difference in days
+                const diffTime = lastPolicyEnd - prevPolicyEnd;
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
+                
+                console.log(`  Gap in days: ${diffDays}`);
+                
+                // Update UI fields
+                // Start of Term = Last policy's end date
+                // Prev Expire = Previous policy's end date
+                drv.gapStart = lastPolicy.end_date;
+                drv.gapEnd = previousPolicy.end_date;
+                
+                // Update the display fields in UI
+                if (gapStartField) gapStartField.value = lastPolicy.end_date;
+                if (gapEndField) gapEndField.value = previousPolicy.end_date;
+                
                 if (diffDays > 0) {
                     outField.value = `${diffDays} Days Gap`;
                     outField.classList.add('text-rose-600');
                     outField.classList.remove('text-slate-700');
+                } else if (diffDays < 0) {
+                    outField.value = `Overlap (${Math.abs(diffDays)} Days)`;
+                    outField.classList.add('text-amber-600');
+                    outField.classList.remove('text-slate-700', 'text-rose-600');
                 } else {
-                    outField.value = "0 Days"; 
-                    outField.classList.remove('text-rose-600');
+                    outField.value = "0 Days (Continuous)"; 
+                    outField.classList.remove('text-rose-600', 'text-amber-600');
                     outField.classList.add('text-slate-700');
                 }
             },
@@ -1577,6 +1816,10 @@
                     };
                     
                     console.log("💾 Saving complete client data:", clientData);
+                                        // Debug: Log gapStart and gapEnd for each driver before saving
+                                        clientData.drivers.forEach((drv, idx) => {
+                                            console.log(`[SAVE DEBUG] Driver #${idx+1} gapStart:`, drv.gapStart, 'gapEnd:', drv.gapEnd);
+                                        });
                     
                     // Send to backend
                     const response = await fetch(`${window.location.origin}/api/save-client`, {
@@ -1593,7 +1836,9 @@
                         console.log("✅ Client data saved successfully:", result);
                         btn.className = "group w-full text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 px-4 py-3 rounded-lg shadow-md flex items-center justify-center gap-2";
                         btn.innerHTML = '<i class="fa-solid fa-check"></i> Saved Successfully';
+                        // Recalculate insurance gap after save
                         setTimeout(() => {
+                            this.calcInsuranceGap();
                             btn.disabled = false;
                             btn.innerHTML = originalText;
                             btn.className = "group w-full text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 px-4 py-3 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 transform active:scale-[0.98]";
@@ -1709,38 +1954,65 @@
                 }
             },
             
-            selectLead: function(name, phone, email) {
+            selectLead: async function(name, phone, email) {
                 console.log('👤 Selecting lead:', {name, phone, email});
-                
                 // Populate search box with name
                 const searchInput = document.getElementById('client-search');
                 if (searchInput) {
                     searchInput.value = name;
                     console.log('✅ Search box updated with:', name);
                 }
-                
-                // Populate email and phone inputs
-                const drv = this.drivers[this.currDrvIdx];
-                drv.personalEmail = email || '';
-                drv.personalMobile = phone || '';
-                
-                // Force update the inputs
-                const emailInput = document.querySelector('[data-key="personalEmail"]');
-                const phoneInput = document.querySelector('[data-key="personalMobile"]');
-                
-                if (emailInput) {
-                    emailInput.value = email || '';
-                    console.log('✅ Email input updated with:', email);
+                // Store original lead info for search restore
+                this.originalLead = { name, phone, email };
+                localStorage.setItem('autoDashboardOriginalLead', JSON.stringify(this.originalLead));
+
+                // Try to load saved data for this lead from database
+                let foundData = false;
+                if (email) {
+                    try {
+                        console.log('📂 Fetching saved data for:', email);
+                        const response = await fetch(`${window.location.origin}/api/get-client-data/${encodeURIComponent(email)}`);
+                        const result = await response.json();
+                        if (result.success && result.data && result.data.drivers) {
+                            console.log('✅ Loaded saved drivers data:', result.data.drivers);
+                            // Restore the saved drivers data
+                            this.drivers = result.data.drivers;
+                            this.currDrvIdx = 0;
+                            foundData = true;
+                        } else {
+                            console.log('ℹ️ No saved data found for this lead, resetting to blank/default.');
+                        }
+                    } catch (error) {
+                        console.warn('⚠️ Could not load saved data:', error);
+                    }
                 }
-                if (phoneInput) {
-                    phoneInput.value = phone || '';
-                    console.log('✅ Phone input updated with:', phone);
+                if (!foundData) {
+                    // Reset to new client and populate with search lead info
+                    this.drivers = [this.createDriver(1)];
+                    this.drivers[0].mainRel = 'Principal';
+                    this.currDrvIdx = 0;
+                    const drv = this.drivers[0];
+                    drv.personalEmail = email || '';
+                    drv.personalMobile = phone || '';
+                    drv.personalName = name || '';
+                    drv.mainName = name || '';
+                    // Clear all other fields in the driver object
+                    Object.keys(drv).forEach(key => {
+                        if (!['id','mainRel','personalEmail','personalMobile','personalName','mainName','vehicles','files','claims','convictions'].includes(key)) {
+                            drv[key] = '';
+                        }
+                        if (key === 'vehicles') drv.vehicles = [{ id: 1, vin: '', yearMake: '', condition: 'Used', financing: 'Paid Off', purchaseDate: '', purchaseKm: '', use: 'Commute', annualKm: '', winterTires: 'No', antiTheft: 'No', rideSharing: 'No' }];
+                        if (key === 'files') drv.files = { dash: null, mvr: null };
+                        if (key === 'claims') drv.claims = [];
+                        if (key === 'convictions') drv.convictions = [];
+                    });
                 }
-                
+                // Refresh UI with the loaded/new data
+                this.renderSelectors();
+                this.refreshUI();
                 // Hide dropdown
                 document.getElementById('search-results').classList.add('hidden');
-                
-                console.log(`✅ Lead selected successfully!`);
+                console.log(`✅ Lead selected and data loaded successfully!`);
             }
         };
 

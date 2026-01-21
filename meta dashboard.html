@@ -358,9 +358,14 @@
                     <button class="js-open-modal h-9 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-indigo-200 flex items-center gap-2 whitespace-nowrap">
                         <i class="fa-solid fa-plus"></i> <span class="hidden sm:inline">Add Lead</span>
                     </button>
-                    <button id="sync-meta-btn" class="h-9 w-9 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600 rounded-lg text-xs font-bold transition-all shadow-subtle flex items-center justify-center">
-                        <i class="fa-solid fa-rotate"></i>
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <div class="text-[10px] text-slate-400 hidden sm:block">
+                            <span id="last-sync-time">Never</span>
+                        </div>
+                        <button id="sync-meta-btn" class="h-9 w-9 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600 rounded-lg text-xs font-bold transition-all shadow-subtle flex items-center justify-center">
+                            <i class="fa-solid fa-rotate"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -598,39 +603,44 @@
             async init() {
                 console.log('🚀 Dashboard init() started');
                 this.updateModalFields(CONFIG.TYPES.GENERAL); // Init modal with default fields
-                console.log('📞 Calling loadLeadsFromBackend...');
-                await this.loadLeadsFromBackend(); // Load real data from backend
-                console.log('✅ loadLeadsFromBackend completed');
+                console.log('📞 Loading leads from database (instant)...');
+                await this.loadLeadsFromDatabase(); // Instant load from database
+                console.log('✅ Initial load completed');
                 console.log('📊 Current leads count:', this.state.leads.length);
-                console.log(`✅ Loaded ${this.state.leads.length} leads successfully`);
                 this.renderAll();
                 this.updateStats();
                 this.bindEvents();
                 this.initDatePickers(); // Init global pickers like view date
                 this.setupDateShortcuts(); // Init date shortcuts
-                this.startAutoRefresh(); // Start polling for new leads
+                
+                // Start background sync from Facebook
+                console.log('🔄 Starting background sync from Facebook...');
+                this.syncFromFacebook(); // Immediate first sync
+                this.startAutoRefresh(); // Then every 30 seconds
                 console.log('✅ Dashboard init() completed');
             }
 
             startAutoRefresh() {
-                // Poll for new leads every 30 seconds
+                // Sync fresh leads from Facebook every 30 seconds
                 setInterval(async () => {
-                    console.log('🔄 Auto-syncing leads from Facebook...');
-                    await this.syncLeadsFromFacebook();
+                    console.log('🔄 Auto-syncing from Facebook...');
+                    await this.syncFromFacebook();
                 }, 30000); // 30 seconds
             }
 
-            async syncLeadsFromFacebook() {
+            async syncFromFacebook() {
                 try {
-                    // Call backend to fetch latest leads from Facebook and save to DB
+                    console.log('📞 Calling Facebook sync endpoint...');
                     const response = await fetch(`${BACKEND_URL}/api/leads/sync`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' }
                     });
                     const result = await response.json();
                     
+                    this.updateLastSyncTime(); // Update sync time indicator
+                    
                     if (result.success && result.leads && result.leads.length > 0) {
-                        console.log(`✨ Synced ${result.leads.length} new leads from Facebook!`);
+                        console.log(`✨ Got ${result.leads.length} new leads from Facebook!`);
                         
                         // Find truly new leads (not already in our state)
                         const existingIds = new Set(this.state.leads.map(l => l.id));
@@ -646,40 +656,42 @@
                             
                             // Show notification
                             this.showToast(`${newLeads.length} new lead(s) from Facebook!`, 'success');
+                        } else {
+                            console.log('✅ Facebook sync complete, no new leads');
                         }
+                    } else {
+                        console.log('✅ Facebook sync complete, no new leads');
                     }
                 } catch (error) {
-                    console.error('❌ Auto-sync error:', error);
+                    console.error('❌ Facebook sync error:', error);
                 }
             }
 
-            async loadLeadsFromBackend() {
-                // Fetch leads from backend
+            async loadLeadsFromDatabase() {
+                // Load existing leads from database (instant)
                 console.log('🔍 Fetching from:', `${BACKEND_URL}/api/leads`);
-                console.log('⏳ This may take 30-60 seconds to fetch from Facebook...');
-                this.showToast('Loading leads from Facebook...', 'info');
+                
                 try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
-                    
                     const response = await fetch(`${BACKEND_URL}/api/leads`, {
                         method: 'GET',
-                        headers: { 'Content-Type': 'application/json' },
-                        signal: controller.signal
+                        headers: { 'Content-Type': 'application/json' }
                     });
-                    clearTimeout(timeoutId);
                     
-                    console.log('📡 Response status:', response.status);
+                    console.log('📡 Response received! Status:', response.status);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
                     const result = await response.json();
-                    console.log('📦 Result:', result);
+                    console.log('📦 Loaded from database:', result.count, 'leads');
+                    
                     this.state.leads = result.data || [];
                     this.state.loading = false;
-                    console.log('✅ Loaded', this.state.leads.length, 'leads');
-                    this.showToast(`Loaded ${this.state.leads.length} leads from Facebook!`, 'success');
-                    this.renderAll(); // Render the leads
+                    
+                    console.log('✅ Database load complete:', this.state.leads.length, 'leads');
                 } catch (error) {
-                    console.error('❌ Error loading leads:', error);
-                    this.showToast('Failed to load leads from server', 'error');
+                    console.error('❌ Error loading from database:', error);
                     this.state.loading = false;
                 }
             }
@@ -687,6 +699,11 @@
             async syncLeadsWithMeta() {
                 // Sync latest leads from Meta API
                 try {
+                    const syncBtn = document.getElementById('sync-meta-btn');
+                    const icon = syncBtn.querySelector('i');
+                    icon.classList.add('fa-spin');
+                    syncBtn.disabled = true;
+                    
                     const response = await fetch(`${BACKEND_URL}/api/leads/sync`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' }
@@ -696,11 +713,26 @@
                         await this.loadLeadsFromBackend();
                         this.renderAll();
                         this.updateStats();
+                        this.updateLastSyncTime();
                         this.showToast(result.message, 'success');
                     }
+                    
+                    icon.classList.remove('fa-spin');
+                    syncBtn.disabled = false;
                 } catch (error) {
                     console.error('Error syncing leads:', error);
                     this.showToast('Failed to sync leads from Meta', 'error');
+                    const syncBtn = document.getElementById('sync-meta-btn');
+                    syncBtn.querySelector('i').classList.remove('fa-spin');
+                    syncBtn.disabled = false;
+                }
+            }
+
+            updateLastSyncTime() {
+                const timeEl = document.getElementById('last-sync-time');
+                if (timeEl) {
+                    const now = new Date();
+                    timeEl.textContent = `${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
                 }
             }
 
@@ -887,9 +919,13 @@
             }
 
             getFilteredLeads() {
-                return this.state.leads.filter(lead => {
+                console.log('🔍 getFilteredLeads called, total leads:', this.state.leads.length);
+                const filtered = this.state.leads.filter(lead => {
                     // Filter by Tab Type
-                    if (this.state.activeTab !== 'all' && lead.type !== this.state.activeTab) return false;
+                    if (this.state.activeTab !== 'all' && lead.type !== this.state.activeTab) {
+                        console.log(`❌ Lead ${lead.id} filtered out by tab (${lead.type} !== ${this.state.activeTab})`);
+                        return false;
+                    }
 
                     const term = this.state.searchTerm;
                     const matchesSearch = !term || (
@@ -900,6 +936,8 @@
                     const matchesStatus = this.state.filterStatus === 'all' || lead.status === this.state.filterStatus;
                     return matchesSearch && matchesStatus;
                 });
+                console.log('✅ Filtered results:', filtered.length);
+                return filtered;
             }
             
             updateStats() {
@@ -937,14 +975,24 @@
             }
 
             renderAll() {
+                console.log('🎨 renderAll() called');
+                console.log('📊 Total leads in state:', this.state.leads.length);
+                console.log('🔍 Active tab:', this.state.activeTab);
+                console.log('🔍 Filter status:', this.state.filterStatus);
+                console.log('🔍 Search term:', this.state.searchTerm);
+                
                 this.dom.tbody.innerHTML = '';
                 const filtered = this.getFilteredLeads();
                 
+                console.log('✅ Filtered leads:', filtered.length);
+                
                 if (filtered.length === 0) {
                     this.dom.noResults.classList.remove('hidden');
+                    console.log('⚠️ No results - showing no results message');
                 } else {
                     this.dom.noResults.classList.add('hidden');
                     filtered.forEach(lead => this.renderRow(lead));
+                    console.log('✅ Rendered', filtered.length, 'rows');
                 }
                 
                 this.updateBulkUI();
@@ -1017,7 +1065,8 @@
 
             _renderLeadBadge(row, lead) {
                 const badge = row.querySelector('.lead-id-badge');
-                if (lead.isManual) {
+                // Check both isManual and is_manual (database returns is_manual)
+                if (lead.isManual || lead.is_manual) {
                     badge.textContent = 'Manual Lead';
                     badge.className = 'lead-id-badge text-[10px] font-bold mt-1 px-2 py-1 rounded border w-fit ml-7 bg-yellow-100 text-yellow-700 border-yellow-300';
                 } else {
@@ -1257,7 +1306,7 @@
                     .then(res => res.json())
                     .then(result => {
                         this.state.selectedIds.delete(id);
-                        this.loadLeadsFromBackend().then(() => {
+                        this.loadLeadsFromDatabase().then(() => {
                             this.renderAll();
                             this.updateStats();
                             this.showToast('Lead deleted successfully', 'success');
@@ -1439,7 +1488,7 @@
                     .then(result => {
                         this.showToast(`Lead updated successfully`, 'success');
                         this.closeModal();
-                        this.loadLeadsFromBackend().then(() => {
+                        this.loadLeadsFromDatabase().then(() => {
                             this.renderAll();
                             this.updateStats();
                         });

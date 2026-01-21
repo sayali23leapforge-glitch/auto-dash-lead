@@ -20,44 +20,62 @@ def parse_dash_pdf(pdf_file):
         dict: Extracted DASH information
     """
     try:
-        # Read PDF
+        print("\n🔍 Starting DASH PDF parsing...")
+        # Use pdfplumber for more robust text extraction
+        import pdfplumber
         if isinstance(pdf_file, bytes):
             pdf_file = BytesIO(pdf_file)
-        
-        pdf_reader = PyPDF2.PdfReader(pdf_file)
-        
-        # Extract text from all pages
         full_text = ""
-        for page in pdf_reader.pages:
-            full_text += page.extract_text() + "\n"
+        page_count = 0
+        with pdfplumber.open(pdf_file) as pdf:
+            print(f"📄 PDF has {len(pdf.pages)} pages")
+            for page_idx, page in enumerate(pdf.pages):
+                try:
+                    page_text = page.extract_text()
+                    if page_text:
+                        full_text += page_text + "\n"
+                        page_count += 1
+                        print(f"  Page {page_idx + 1}: Extracted {len(page_text)} characters")
+                    else:
+                        print(f"  Page {page_idx + 1}: No text extracted (possibly scanned image)")
+                except Exception as page_error:
+                    print(f"  ❌ Error extracting text from page {page_idx + 1}: {str(page_error)}")
         
+        print(f"✅ Successfully extracted text from {page_count} page(s), total: {len(full_text)} characters")
+        
+        if not full_text or len(full_text.strip()) < 50:
+            print("⚠️ WARNING: Extracted text is too short or empty")
+            print(f"First 100 chars: {full_text[:100]}")
+
         # Parse the extracted text
+        print("🔄 Calling extract_dash_fields...")
         dash_data = extract_dash_fields(full_text)
+        
+        print(f"✅ DASH parsing complete. Extracted fields: {list(dash_data.keys())}")
         
         return {
             "success": True,
             "data": dash_data,
             "raw_text": full_text  # For debugging
         }
-        
     except Exception as e:
+        error_msg = f"PDF Parsing Error: {str(e)}"
+        print(f"❌ {error_msg}")
+        import traceback
+        traceback.print_exc()
         return {
             "success": False,
-            "error": str(e)
+            "error": error_msg
         }
-
 
 def extract_dash_fields(text):
     """
     Extract specific fields from DASH text
     """
     data = {}
-    
     print("=== DASH PDF TEXT SAMPLE (First 2000 chars) ===")
     print(text[:2000])
     print("=== END SAMPLE ===")
-    
-    # Report Date - extract from "Report Date: 2025-11-05 10:43:31 EST" or "2025-1 1-05" (with spaces)
     report_date_match = re.search(r'Report\s*Date:\s*(\d{4}-\d{1,2}\s*\d{1,2}-\d{1,2})', text, re.IGNORECASE)
     if report_date_match:
         # Remove any spaces from the date
@@ -203,6 +221,21 @@ def extract_dash_fields(text):
         policy_matches = list(re.finditer(policy_pattern, policies_text))
         
         if policy_matches:
+            # Store ALL policies for gap calculation
+            all_policies = []
+            for match in policy_matches:
+                policy = {
+                    'number': int(match.group(1)),
+                    'start_date': normalize_date(match.group(2).replace(' ', '')),
+                    'end_date': normalize_date(match.group(3).replace(' ', ''))
+                }
+                all_policies.append(policy)
+            
+            # Sort by policy number to ensure correct order
+            all_policies.sort(key=lambda x: x['number'])
+            data['all_policies'] = all_policies
+            print(f"✓ Extracted {len(all_policies)} policies for gap calculation")
+            
             # Get the LAST policy (oldest one, highest number)
             last_policy = policy_matches[-1]
             policy_num = last_policy.group(1)
@@ -220,7 +253,9 @@ def extract_dash_fields(text):
             
             data['policy_start_date'] = normalize_date(current_start)
             data['policy_end_date'] = normalize_date(current_end)
+            data['renewal_date'] = normalize_date(current_end)  # Always add renewal_date as expiry of policy #1
             print(f"✓ Current Policy Dates: {data['policy_start_date']} to {data['policy_end_date']}")
+            print(f"✓ Renewal Date (Policy #1 Expiry): {data['renewal_date']}")
     
     # Fallback: Try to get from detail section if policies section not found
     if not data.get('policy_start_date'):
@@ -269,25 +304,116 @@ def extract_dash_fields(text):
     
     print("\n=== EXTRACTING CLAIMS ===")
     
-    # Find the "Claims" section in the PDF
-    claims_section_match = re.search(r'Claims\s*\n(.*?)(?:Previous Inquiries|Page \d+ of \d+|$)', text, re.DOTALL | re.IGNORECASE)
+    # Find the "Claims" section in the PDF - improved to capture all claims across pages
+    # Look for Claims section and capture until "Previous Inquiries" section
+    claims_section_match = re.search(r'Claims\s*\n(.*?)(?:Previous Inquiries)', text, re.DOTALL | re.IGNORECASE)
+    
+    # If not found, try alternative: capture from Claims to end of document
+    if not claims_section_match:
+        claims_section_match = re.search(r'Claims\s*\n(.*?)$', text, re.DOTALL | re.IGNORECASE)
     
     if claims_section_match:
         claims_text = claims_section_match.group(1)
-        print(f"Found Claims section ({len(claims_text)} characters)")
+        print(f"\n=== CLAIMS SECTION ({len(claims_text)} chars) ===")
+        print(f"First 1000 chars:\n{claims_text[:1000]}")
         
-        # Now extract individual claims from Claims section only
-        # Format: "#1 Date of Loss 2020-12-01 Aviva Insurance Company of Canada  At-Fault : 0%"
-        claim_pattern = r'#(\d+)\s+Date\s+of\s+Loss\s+(\d{4}-\d{2}-\d{2})\s+(.+?)\s+At-Fault\s*:\s*(\d+)%'
+        # Count potential claim markers
+        claim_num_markers = re.findall(r'#(\d+)', claims_text)
+        print(f"\n[DEBUG] Found claim number markers: {claim_num_markers}")
+        print(f"[DEBUG] Total markers found: {len(claim_num_markers)}")
         
-        claim_matches = re.finditer(claim_pattern, claims_text, re.IGNORECASE)
+        # Strategy: Split by claim numbers and extract data from each section
+        print(f"\n[EXTRACT] Splitting by claim number patterns...")
         
-        for match in claim_matches:
+        # Split by # followed by digit
+        parts = re.split(r'(?=#\d)', claims_text)
+        claim_matches = []
+        
+        for part_idx, part in enumerate(parts):
+            part = part.strip()
+            if not part or not part.startswith('#'):
+                continue
+                
+            # Extract claim number
+            num_match = re.match(r'#(\d+)', part)
+            if not num_match:
+                continue
+                
+            claim_num = num_match.group(1)
+            print(f"\n[CLAIM {claim_num}] Processing...")
+            
+            # Extract date of loss
+            date_match = re.search(r'(\d{4}[-/]\d{1,2}[-/]\d{1,2})', part)
+            loss_date = date_match.group(1) if date_match else "0000-00-00"
+            print(f"  Date: {loss_date}")
+            
+            # Extract at-fault percentage
+            fault_match = re.search(r'At-?Fault\s*:\s*(\d+)\s*%', part, re.IGNORECASE)
+            at_fault_pct = fault_match.group(1) if fault_match else "0"
+            print(f"  At-Fault: {at_fault_pct}%")
+            
+            # Extract company name (usually between Date and At-Fault)
+            company_match = re.search(rf'#{claim_num}\s+.*?(\d{{4}}[-/]\d{{1,2}}[-/]\d{{1,2}})\s+(.*?)(?:At-?Fault|$)', part, re.IGNORECASE | re.DOTALL)
+            company = company_match.group(2).strip() if company_match else ""
+            if company:
+                company = company.split('\n')[0].strip()  # Take first line only
+            print(f"  Company: {company}")
+            
+            # Create a match-like object to maintain compatibility
+            class PartMatch:
+                def __init__(self, num, date, company, fault, full_text):
+                    self._num = num
+                    self._date = date
+                    self._company = company
+                    self._fault = fault
+                    self._text = full_text
+                def group(self, idx):
+                    if idx == 0: return self._text
+                    elif idx == 1: return self._num
+                    elif idx == 2: return self._date
+                    elif idx == 3: return self._company
+                    elif idx == 4: return self._fault
+                    return None
+                def groups(self):
+                    return (self._num, self._date, self._company, self._fault)
+                def end(self):
+                    return len(self._text)
+            
+            claim_matches.append(PartMatch(claim_num, loss_date, company, at_fault_pct, part))
+        
+        print(f"\n[EXTRACT] Total claims extracted: {len(claim_matches)}")
+        print(f"[EXTRACT] Expected: {len(claim_num_markers)}, Found: {len(claim_matches)}")
+        
+        total_claims_found = len(claim_matches)
+        print(f"\n[CLAIMS] TOTAL FOUND: {total_claims_found}")
+        
+        for idx, match in enumerate(claim_matches, 1):
             claim = {}
+            print(f"\n[CLAIM {idx}/{total_claims_found}] Processing...")
             claim_num = match.group(1)
             loss_date = match.group(2)
-            company_and_notes = match.group(3).strip()
-            at_fault_pct = match.group(4)
+            
+            # Extract company name and at-fault percentage
+            if len(match.groups()) >= 4:
+                # We have the full match with company and at-fault
+                company_and_notes = match.group(3).strip()
+                at_fault_pct = match.group(4)
+                print(f"  [FULL] Company='{company_and_notes}', AtFault={at_fault_pct}%")
+            else:
+                # Fallback: extract from text after the loss date
+                company_and_notes = ""
+                at_fault_pct = "0"
+                # Try to find at-fault percentage in the text following this claim
+                search_start = match.end()
+                search_end = min(search_start + 200, len(claims_text))
+                next_section = claims_text[search_start:search_end]
+                at_fault_match = re.search(r'At-?Fault\s*:\s*(\d+)\s*%', next_section, re.IGNORECASE)
+                if at_fault_match:
+                    at_fault_pct = at_fault_match.group(1)
+                    # Extract company from between loss date and at-fault
+                    company_section = next_section[:at_fault_match.start()]
+                    company_and_notes = company_section.strip()
+                    print(f"  [PARTIAL] Company='{company_and_notes}', AtFault={at_fault_pct}%")
             
             claim['date'] = normalize_date(loss_date)
             
@@ -373,9 +499,21 @@ def extract_dash_fields(text):
         data['email'] = email_match.group(0)
         print(f"Found email: {data['email']}")
     
+    # Log what was extracted
+    extracted_fields = [k for k, v in data.items() if v]
+    print(f"\n✅ DASH extraction complete:")
+    print(f"  Fields extracted: {extracted_fields}")
+    print(f"  Total fields with values: {len(extracted_fields)} out of {len(data)}")
     print(f"=== DASH EXTRACTED DATA ===")
-    print(json.dumps(data, indent=2))
+    print(json.dumps(data, indent=2, default=str))
     print(f"=== END DATA ===")
+    
+    if not extracted_fields:
+        print("\n⚠️ WARNING: No fields were extracted from the PDF text!")
+        print("This could mean:")
+        print("  1. PDF is image-based/scanned (needs OCR)")
+        print("  2. Text layout doesn't match expected patterns")
+        print("  3. PDF is corrupted")
     
     return data
 
@@ -555,26 +693,85 @@ def extract_mvr_fields(text):
         # If there are convictions, try to extract them
         if conv_count > 0:
             convictions = []
-            # Look for conviction details (format varies by province)
-            # Common patterns: Date, Offense, Fine/Points
-            conv_detail_pattern = r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+([A-Z\s]+(?:SPEED|TRAFFIC|DRIVE|SIGNAL)[^\n]+)'
-            conv_matches = re.finditer(conv_detail_pattern, text, re.IGNORECASE)
             
-            for match in conv_matches:
-                conviction = {
-                    'date': normalize_date(match.group(1)),
-                    'description': match.group(2).strip()
-                }
-                convictions.append(conviction)
-                print(f"  → Conviction: {conviction['date']} - {conviction['description']}")
+            # Find the "Number of Convictions" section
+            conv_section_start = conv_match.end()
+            # Look for the next section header or end of document
+            next_section = re.search(r'(?:^\*+|^[A-Z\*]{3,})', text[conv_section_start:], re.MULTILINE)
+            if next_section:
+                conv_section = text[conv_section_start:conv_section_start + next_section.start()]
+            else:
+                conv_section = text[conv_section_start:]
+            
+            print(f"\n=== CONVICTIONS SECTION (First 2000 chars) ===")
+            print(conv_section[:2000])
+            print(f"=== END CONVICTIONS SECTION ===\n")
+            
+            # Try multiple patterns to extract conviction details
+            # Pattern 1: Standard MVR format - lines with date, offense, and penalties
+            # Looking for patterns like:
+            # 01/15/2023 Speeding 20+ km/h over limit Fine: $280
+            # Or: 01/15/2023 - Speeding...
+            # Or list format with conviction headers
+            
+            conv_detail_patterns = [
+                # Date + offense + fine (most common MVR format)
+                r'(\d{1,2}/\d{1,2}/\d{4})\s+([A-Za-z\s\-\(\)0-9\.&/]+?)(?:\s+Fine:\s*\$?[\d,.]+|\s+Penalty.*)?(?:\n|$)',
+                # Date - description format
+                r'(\d{1,2}/\d{1,2}/\d{4})\s*[\-–]\s*([A-Za-z\s\-\(\)0-9\.&/]+?)(?:\n|$)',
+                # Numbered conviction format: 1. Date Description
+                r'^\s*\d+\.\s+(\d{1,2}/\d{1,2}/\d{4})\s+([A-Za-z\s\-\(\)0-9\.&/]+?)$',
+                # Conviction list format with newlines separating offense from fine
+                r'(\d{1,2}/\d{1,2}/\d{4})\s*\n\s*([A-Za-z\s\-\(\)0-9\.&/]+?)(?=\n\d{1,2}/\d{1,2}/\d{4}|\n---|\n\*|\Z)',
+            ]
+            
+            for pattern in conv_detail_patterns:
+                print(f"\n[PATTERN] Trying pattern: {pattern[:80]}...")
+                conv_matches = re.finditer(pattern, conv_section, re.IGNORECASE | re.MULTILINE)
+                matched_count = 0
+                
+                for match in conv_matches:
+                    date_str = match.group(1).strip()
+                    description = match.group(2).strip()
+                    
+                    # Clean up description - remove extra whitespace and common artifacts
+                    description = re.sub(r'\s+', ' ', description)
+                    description = re.sub(r'\s*[Ff]ine:\s*\$?[\d,.]+\s*', '', description)
+                    description = re.sub(r'\s*[Pp]enalty.*?$', '', description, flags=re.MULTILINE)
+                    description = description.strip()
+                    
+                    # Skip if description is empty or just punctuation
+                    if description and description not in ['', '-', '*', 'N', 'None', 'NONE'] and len(description) > 2:
+                        conviction = {
+                            'date': normalize_date(date_str),
+                            'description': description
+                        }
+                        # Avoid duplicates
+                        if conviction not in convictions:
+                            convictions.append(conviction)
+                            matched_count += 1
+                            print(f"  ✓ Found: {conviction['date']} - {conviction['description'][:60]}...")
+                
+                # If we found enough convictions with this pattern, use it
+                if len(convictions) >= conv_count:
+                    print(f"✓ Pattern matched {matched_count} convictions, stopping pattern search")
+                    break
+                elif matched_count > 0:
+                    print(f"✓ Pattern matched {matched_count} conviction(s)")
             
             if convictions:
                 data['convictions'] = convictions
-                print(f"✓ Extracted {len(convictions)} conviction details")
+                print(f"\n✅ Extracted {len(convictions)} conviction details out of {conv_count} expected")
+                if len(convictions) < conv_count:
+                    print(f"⚠️  Note: Expected {conv_count} but found {len(convictions)} - PDF format may vary")
+            else:
+                # If we couldn't extract details, at least show count
+                print(f"⚠️  Could not extract conviction details (found count: {conv_count})")
+                print(f"    This might be due to PDF format variation. Please check the PDF manually.")
     else:
         # Default to 0 if not found
         data['convictions_count'] = '0'
-        print(f"✓ No convictions found (defaulting to 0)")
+        print(f"✓ No convictions section found (defaulting to 0 convictions)")
     
     print(f"=== MVR EXTRACTED DATA ===")
     print(json.dumps(data, indent=2))
