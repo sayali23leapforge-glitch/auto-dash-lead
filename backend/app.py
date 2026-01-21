@@ -23,8 +23,8 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 import hmac
 import hashlib
-# Import pdf_parser directly (standalone script)
-from pdf_parser import parse_mvr_pdf, parse_dash_pdf
+# Import pdf_parser using package-relative import
+from backend.pdf_parser import parse_mvr_pdf, parse_dash_pdf
 
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), '../.env.local'))
