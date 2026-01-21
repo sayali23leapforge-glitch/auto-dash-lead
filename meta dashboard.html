@@ -603,19 +603,13 @@
             async init() {
                 console.log('🚀 Dashboard init() started');
                 this.updateModalFields(CONFIG.TYPES.GENERAL); // Init modal with default fields
-                console.log('📞 Loading leads from database (instant)...');
-                await this.loadLeadsFromDatabase(); // Instant load from database
-                console.log('✅ Initial load completed');
-                console.log('📊 Current leads count:', this.state.leads.length);
-                this.renderAll();
-                this.updateStats();
                 this.bindEvents();
                 this.initDatePickers(); // Init global pickers like view date
                 this.setupDateShortcuts(); // Init date shortcuts
-                
-                // Start background sync from Facebook
-                console.log('🔄 Starting background sync from Facebook...');
-                this.syncFromFacebook(); // Immediate first sync
+
+                // Only fetch leads from Facebook API, not from database
+                console.log('🔄 Fetching leads from Facebook API...');
+                await this.syncFromFacebook(); // Initial load from Facebook
                 this.startAutoRefresh(); // Then every 30 seconds
                 console.log('✅ Dashboard init() completed');
             }
