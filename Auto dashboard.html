@@ -590,7 +590,8 @@
                     gapStart: '', gapEnd: '',
                     claimDate: '', claimFault: '', claimDesc: '', claimLoss: '', claimExpense: '', claimTotal: '',
                     files: { dash: null, mvr: null },
-                    vehicles: [{ id: 1, vin: '', yearMake: '', condition: 'Used', financing: 'Paid Off', purchaseDate: '', purchaseKm: '', use: 'Commute', annualKm: '', winterTires: 'No', antiTheft: 'No', rideSharing: 'No' }]
+                    vehicles: [{ id: 1, vin: '', yearMake: '', condition: 'Used', financing: 'Paid Off', purchaseDate: '', purchaseKm: '', use: 'Commute', annualKm: '', winterTires: 'No', antiTheft: 'No', rideSharing: 'No' }],
+                    deletedVehicles: []  // Archive for deleted vehicles
                 };
             },
 
@@ -803,9 +804,10 @@
                 else {
                     const vScope = target.closest('.hud__section[data-scope^="vehicle-"]');
                     if(vScope) {
-                        const vIdx = parseInt(vScope.dataset.scope.split('-')[1]);
-                        if(currentDriver.vehicles[vIdx]) {
-                            Binder.syncFromDom(`vehicle-${vIdx}`, currentDriver.vehicles[vIdx], target);
+                        const vehicleId = parseInt(vScope.dataset.vehicleId);
+                        const vehicle = currentDriver.vehicles.find(v => v.id === vehicleId);
+                        if(vehicle) {
+                            Binder.syncFromDom(`vehicle-${vehicleId}`, vehicle, target);
                         }
                     }
                 }
@@ -813,14 +815,64 @@
 
             addVehicle: function() {
                 const vs = this.drivers[this.currDrvIdx].vehicles;
-                vs.push({ id: vs.length + 1, vin: '', yearMake: '', condition: 'Used', financing: 'Paid Off', purchaseDate: '', purchaseKm: '', use: 'Commute', annualKm: '', winterTires: 'No', antiTheft: 'No', rideSharing: 'No' });
+                // Generate next unique ID by finding the max ID and adding 1
+                const maxId = vs.length > 0 ? Math.max(...vs.map(v => v.id || 0)) : 0;
+                vs.push({ id: maxId + 1, vin: '', yearMake: '', condition: 'Used', financing: 'Paid Off', purchaseDate: '', purchaseKm: '', use: 'Commute', annualKm: '', winterTires: 'No', antiTheft: 'No', rideSharing: 'No' });
+                console.log('➕ Added vehicle with ID:', maxId + 1);
                 this.refreshUI();
             },
 
             deleteVehicle: function(idx) {
-                const vs = this.drivers[this.currDrvIdx].vehicles;
-                if (vs.length <= 1) return;
-                vs.splice(idx, 1);
+                // Deprecated: Use deleteVehicleById instead
+                if (idx >= 0 && idx < this.drivers[this.currDrvIdx].vehicles.length) {
+                    const vehicleId = this.drivers[this.currDrvIdx].vehicles[idx].id;
+                    this.deleteVehicleById(vehicleId);
+                }
+            },
+
+            deleteVehicleById: function(vehicleId) {
+                const drv = this.drivers[this.currDrvIdx];
+                if (!drv || !drv.vehicles) {
+                    console.error('[ERROR] Driver or vehicles array not found');
+                    return;
+                }
+                
+                const vs = drv.vehicles;
+                if (vs.length <= 1) {
+                    console.warn('[WARN] Cannot delete last vehicle');
+                    return;
+                }
+                
+                // Ensure vehicleId is an integer
+                const intVehicleId = parseInt(vehicleId);
+                
+                // Find vehicle by ID
+                const vehicleIndex = vs.findIndex(v => v && v.id === intVehicleId);
+                if (vehicleIndex === -1) {
+                    console.warn('[WARN] Vehicle not found with ID:', intVehicleId, 'Available IDs:', vs.map(v => v && v.id));
+                    return;
+                }
+                
+                const deletedVehicle = vs[vehicleIndex];
+                console.log('[DELETE] Deleting vehicle #' + intVehicleId + ' at index ' + vehicleIndex);
+                console.log('  Vehicle data:', deletedVehicle);
+                console.log('  Remaining BEFORE:', vs.map(v => v && v.id));
+                
+                // Archive deleted vehicle instead of removing it
+                if (!drv.deletedVehicles) drv.deletedVehicles = [];
+                drv.deletedVehicles.push(deletedVehicle);
+                
+                // CRITICAL: Save to localStorage BEFORE removing from UI to prevent data loss
+                // Remove only the vehicle at the found index
+                vs.splice(vehicleIndex, 1);
+                
+                // Save immediately to ensure all vehicle data is persisted
+                this.saveToLocalStorage();
+                
+                console.log('  Remaining AFTER:', vs.map(v => v && v.id));
+                console.log('[ARCHIVE] Now contains:', drv.deletedVehicles.length, 'vehicle(s)');
+                
+                // Refresh UI after save
                 this.refreshUI();
             },
 
@@ -866,7 +918,7 @@
 
                 Binder.loadToDom('driver', drv);
                 this.renderVehicleCards(drv.vehicles);
-                drv.vehicles.forEach((v, i) => Binder.loadToDom(`vehicle-${i}`, v));
+                drv.vehicles.forEach((v) => Binder.loadToDom(`vehicle-${v.id}`, v));
                 this.updateFileUI('dash', drv.files?.dash);
                 this.updateFileUI('mvr', drv.files?.mvr);
 
@@ -910,11 +962,12 @@
             },
 
             renderVehicleCards: function(vehicles) {
+                const that = this;
                 document.getElementById('vehicles-container').innerHTML = vehicles.map((v, i) => `
-                    <div class="bg-white rounded-xl shadow-lg shadow-indigo-100 border border-indigo-200 overflow-hidden relative hud__section hud__card" data-scope="vehicle-${i}">
+                    <div class="bg-white rounded-xl shadow-lg shadow-indigo-100 border border-indigo-200 overflow-hidden relative hud__section hud__card" data-scope="vehicle-${v.id}" data-vehicle-id="${v.id}" data-vehicle-index="${i}">
                         <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
                         <div class="absolute top-3 right-3 z-10 hud__card-actions">
-                            ${vehicles.length > 1 ? `<button onclick="App.deleteVehicle(${i})" class="text-xs text-rose-400 hover:text-rose-600 hover:bg-rose-50 p-1.5 rounded transition-colors"><i class="fa-solid fa-trash"></i></button>` : ''}
+                            ${vehicles.length > 1 ? `<button class="text-xs text-rose-400 hover:text-rose-600 hover:bg-rose-50 p-1.5 rounded transition-colors delete-vehicle-btn" data-vehicle-id="${v.id}"><i class="fa-solid fa-trash"></i></button>` : ''}
                         </div>
                         
                         <div class="p-6 space-y-5">
@@ -943,11 +996,11 @@
                                         <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Condition</label>
                                         <div class="flex gap-4">
                                             <label class="flex items-center gap-1.5 cursor-pointer group">
-                                                <input type="radio" name="c-${i}" data-key="condition" value="New" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <input type="radio" name="c-${v.id}" data-key="condition" value="New" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
                                                 <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">New</span>
                                             </label>
                                             <label class="flex items-center gap-1.5 cursor-pointer group">
-                                                <input type="radio" name="c-${i}" data-key="condition" value="Used" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <input type="radio" name="c-${v.id}" data-key="condition" value="Used" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
                                                 <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Used</span>
                                             </label>
                                         </div>
@@ -956,15 +1009,15 @@
                                         <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Ownership</label>
                                         <div class="flex flex-col gap-2">
                                             <label class="flex items-center gap-1.5 cursor-pointer group">
-                                                <input type="radio" name="f-${i}" data-key="financing" value="Leased" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <input type="radio" name="f-${v.id}" data-key="financing" value="Leased" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
                                                 <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Leased</span>
                                             </label>
                                             <label class="flex items-center gap-1.5 cursor-pointer group">
-                                                <input type="radio" name="f-${i}" data-key="financing" value="Financed" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <input type="radio" name="f-${v.id}" data-key="financing" value="Financed" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
                                                 <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Financed</span>
                                             </label>
                                             <label class="flex items-center gap-1.5 cursor-pointer group">
-                                                <input type="radio" name="f-${i}" data-key="financing" value="Paid Off" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <input type="radio" name="f-${v.id}" data-key="financing" value="Paid Off" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
                                                 <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Paid Off</span>
                                             </label>
                                         </div>
@@ -999,11 +1052,11 @@
                                         <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Winter Tires</label>
                                         <div class="flex gap-4">
                                             <label class="flex items-center gap-1.5 cursor-pointer group">
-                                                <input type="radio" name="w-${i}" data-key="winterTires" value="Yes" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <input type="radio" name="w-${v.id}" data-key="winterTires" value="Yes" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
                                                 <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Yes</span>
                                             </label>
                                             <label class="flex items-center gap-1.5 cursor-pointer group">
-                                                <input type="radio" name="w-${i}" data-key="winterTires" value="No" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <input type="radio" name="w-${v.id}" data-key="winterTires" value="No" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
                                                 <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">No</span>
                                             </label>
                                         </div>
@@ -1012,11 +1065,11 @@
                                         <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Anti-Theft</label>
                                         <div class="flex gap-4">
                                             <label class="flex items-center gap-1.5 cursor-pointer group">
-                                                <input type="radio" name="t-${i}" data-key="antiTheft" value="Yes" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <input type="radio" name="t-${v.id}" data-key="antiTheft" value="Yes" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
                                                 <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Yes</span>
                                             </label>
                                             <label class="flex items-center gap-1.5 cursor-pointer group">
-                                                <input type="radio" name="t-${i}" data-key="antiTheft" value="No" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <input type="radio" name="t-${v.id}" data-key="antiTheft" value="No" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
                                                 <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">No</span>
                                             </label>
                                         </div>
@@ -1025,11 +1078,11 @@
                                         <label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">Ride Share / Delivery</label>
                                         <div class="flex gap-4">
                                             <label class="flex items-center gap-1.5 cursor-pointer group">
-                                                <input type="radio" name="rs-${i}" data-key="rideSharing" value="Yes" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <input type="radio" name="rs-${v.id}" data-key="rideSharing" value="Yes" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
                                                 <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">Yes</span>
                                             </label>
                                             <label class="flex items-center gap-1.5 cursor-pointer group">
-                                                <input type="radio" name="rs-${i}" data-key="rideSharing" value="No" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
+                                                <input type="radio" name="rs-${v.id}" data-key="rideSharing" value="No" class="hud__radio-input accent-indigo-600 cursor-pointer w-3 h-3">
                                                 <span class="text-xs font-medium text-slate-600 group-hover:text-indigo-600">No</span>
                                             </label>
                                         </div>
@@ -1039,6 +1092,19 @@
                         </div>
                     </div>
                 `).join('');
+                
+                // Attach delete button event listeners
+                setTimeout(() => {
+                    document.querySelectorAll('.delete-vehicle-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const vid = parseInt(btn.dataset.vehicleId);
+                            console.log('[CLICK] Delete button for vehicle ID:', vid);
+                            that.deleteVehicleById(vid);
+                        });
+                    });
+                }, 0);
             },
 
             handleFileUpload: async function(input, type) {
@@ -1081,11 +1147,17 @@
                         const drv = this.drivers[this.currDrvIdx];
                         const data = result.data;
                         
-                        // Debug: show raw text
-                        if (result.raw_text) {
-                            console.log('=== PDF RAW TEXT ===');
-                            console.log(result.raw_text);
-                            console.log('=== END RAW TEXT ===');
+                        console.log('=== PDF RAW TEXT ===');
+                        console.log(result.raw_text);
+                        console.log('=== END RAW TEXT ===');
+                        
+                        // CRITICAL: Clear old vehicle data FIRST before setting new values
+                        // This prevents Binder from restoring old cached values
+                        if (type === 'dash' && drv.vehicles && drv.vehicles[0]) {
+                            console.log('[CLEAR] Clearing old vehicle data from first vehicle');
+                            drv.vehicles[0].vin = '';  // Clear OLD VIN
+                            drv.vehicles[0].yearMake = '';  // Clear OLD year/make
+                            console.log('[CLEAR] OLD VIN cleared, ready to set new values');
                         }
                         
                         console.log(`${type.toUpperCase()} data extracted:`, data);
@@ -1129,7 +1201,11 @@
                                 drv.licNumber = data.license_number;
                                 console.log('✅ Set license:', data.license_number);
                             }
-                            if (data.issue_date) {
+                            // Renewal date: Use policy expiry from DASH if available, otherwise use license expiry/issue date
+                            if (data.policy_end_date) {
+                                drv.licRenewal = data.policy_end_date;
+                                console.log('✅ Set renewal from policy #1 expiry date:', data.policy_end_date);
+                            } else if (data.issue_date) {
                                 drv.licRenewal = data.issue_date;
                                 console.log('✅ Set renewal from issue_date:', data.issue_date);
                             } else if (data.expiry_date) {
@@ -1161,14 +1237,29 @@
                             
                             // VIN and Vehicle info - add to first vehicle if extracted
                             if (drv.vehicles && drv.vehicles[0]) {
-                                if (data.vin) {
-                                    drv.vehicles[0].vin = data.vin;
-                                    console.log('🚗 Set VIN to first vehicle:', data.vin);
-                                }
-                                if (data.vehicle_year_make_model) {
-                                    drv.vehicles[0].yearMake = data.vehicle_year_make_model;
-                                    console.log('🚗 Set Year/Make/Model to first vehicle:', data.vehicle_year_make_model);
-                                }
+                                // ALWAYS reset VIN/yearMake when a new PDF is parsed (clear old values)
+                                const prevVin = drv.vehicles[0].vin;
+                                const prevYearMake = drv.vehicles[0].yearMake;
+                                
+                                // Clear old values first
+                                drv.vehicles[0].vin = data.vin || '-';
+                                drv.vehicles[0].yearMake = data.vehicle_year_make_model || '-';
+                                
+                                console.log('🚗 UPDATED first vehicle VIN:');
+                                console.log('   OLD VIN:', prevVin);
+                                console.log('   NEW VIN:', drv.vehicles[0].vin);
+                                console.log('   OLD yearMake:', prevYearMake);
+                                console.log('   NEW yearMake:', drv.vehicles[0].yearMake);
+                                console.log('   From Policy #:', data.extracted_from_policy || '1');
+                                
+                                // DEBUG: Log all vehicles after update
+                                console.log('📋 All vehicles after DASH parsing:', drv.vehicles.map((v, i) => ({
+                                    index: i,
+                                    id: v.id,
+                                    vin: v.vin,
+                                    yearMake: v.yearMake
+                                })));
+                                console.log('✅ Vehicle data extracted from Policy #' + (data.extracted_from_policy || '1'));
                             } else if (data.vin || data.vehicle_year_make_model) {
                                 console.warn('⚠️ Vehicle data extracted but no vehicle found');
                             }
@@ -1190,8 +1281,8 @@
                                 console.log('✅ Set Continuous Insurance Years:', data.years_continuous_insurance);
                             }
                             if (data.policy_start_date) {
-                                drv.drvInsSince = data.policy_start_date;  // Insured Since date
-                                console.log('✅ Set Insured Since:', data.policy_start_date);
+                                drv.drvInsSince = data.first_insurance_date || data.policy_start_date;  // Insured Since = First insurance date (oldest policy)
+                                console.log('✅ Set Insured Since:', drv.drvInsSince);
                             }
                             if (data.relationship) drv.mainRel = data.relationship;
                             
@@ -1204,25 +1295,33 @@
                                 drv.expFirstIns = data.first_insurance_date;  // First Insurance Date = Last policy start
                                 console.log('✅ Set First Insurance (from last policy):', data.first_insurance_date);
                                 
-                                // Calculate G, G2, G1 dates
+                                // Calculate G, G2, G1 dates with RANDOM month and day (keep year fixed)
                                 const firstInsDate = new Date(data.first_insurance_date);
+                                
+                                // Helper to format with random month/day but fixed year
+                                const formatWithRandomDay = (date) => {
+                                    const year = date.getFullYear();
+                                    const randomMonth = Math.floor(Math.random() * 12) + 1;
+                                    const randomDay = Math.floor(Math.random() * 28) + 1;
+                                    return `${String(randomMonth).padStart(2, '0')}/${String(randomDay).padStart(2, '0')}/${year}`;
+                                };
                                 
                                 // G = First Insurance - 1 year
                                 const gDate = new Date(firstInsDate);
                                 gDate.setFullYear(gDate.getFullYear() - 1);
-                                drv.expGDate = `${String(gDate.getMonth() + 1).padStart(2, '0')}/${String(gDate.getDate()).padStart(2, '0')}/${gDate.getFullYear()}`;
+                                drv.expGDate = formatWithRandomDay(gDate);
                                 console.log('✅ Calculated G (First Ins - 1 year):', drv.expGDate);
                                 
                                 // G2 = First Insurance - 3 years
                                 const g2Date = new Date(firstInsDate);
                                 g2Date.setFullYear(g2Date.getFullYear() - 3);
-                                drv.expG2Date = `${String(g2Date.getMonth() + 1).padStart(2, '0')}/${String(g2Date.getDate()).padStart(2, '0')}/${g2Date.getFullYear()}`;
+                                drv.expG2Date = formatWithRandomDay(g2Date);
                                 console.log('✅ Calculated G2 (First Ins - 3 years):', drv.expG2Date);
                                 
                                 // G1 = First Insurance - 5 years
                                 const g1Date = new Date(firstInsDate);
                                 g1Date.setFullYear(g1Date.getFullYear() - 5);
-                                drv.expG1Date = `${String(g1Date.getMonth() + 1).padStart(2, '0')}/${String(g1Date.getDate()).padStart(2, '0')}/${g1Date.getFullYear()}`;
+                                drv.expG1Date = formatWithRandomDay(g1Date);
                                 console.log('✅ Calculated G1 (First Ins - 5 years):', drv.expG1Date);
                             }
                             
@@ -1257,6 +1356,20 @@
                             
                             // Refresh UI to populate all fields INCLUDING claims
                             this.refreshUI();
+                            
+                            // Save updated driver data to localStorage immediately after refreshUI
+                            this.saveToLocalStorage();
+                            console.log('💾 Saved updated driver data to localStorage (with new VIN)');
+                            
+                            // Save DASH-specific data for Property form auto-fill
+                            const dashAutoFillData = {
+                                name: drv.personalName || data.name,
+                                address: drv.personalAddress || data.address,
+                                dob: drv.personalDob || data.dob,
+                                phone: drv.personalMobile || data.phone
+                            };
+                            localStorage.setItem('dashData', JSON.stringify(dashAutoFillData));
+                            console.log('💾 Saved DASH data for Property auto-fill:', dashAutoFillData);
                             
                             // Now render claim sections AFTER refreshUI
                             if (data.claims && data.claims.length > 0) {
@@ -1307,6 +1420,8 @@
                             if (data.dob) {
                                 drv.personalDob = data.dob;
                                 drv.mvrDob = data.dob;
+                                drv.drvDob = data.dob;  // Also set Driver Info DOB field
+                                console.log('✅ Set Birth Date from MVR to all sections:', data.dob);
                             }
                             if (data.license_number) {
                                 drv.licNumber = data.license_number;
@@ -1417,6 +1532,9 @@
                 container.innerHTML = '';
                 const drv = this.drivers[this.currDrvIdx];
                 
+                // Get current driver's name for auto-fill
+                const currentDriverName = drv.mainName || drv.personalName || '';
+                
                 // Handle no claims case
                 if (!claims || claims.length === 0) {
                     container.innerHTML = '<div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg"><p class="text-sm font-medium text-yellow-800">📋 NO CLAIMS FOUND IN PDF</p></div>';
@@ -1464,11 +1582,40 @@
                                 </div>
                             </div>
 
-                            <!-- Third Row: Description -->
+                            <!-- Third Row: Driver Types (First & Third Party Only) -->
+                            <div class="grid grid-cols-2 gap-6 mb-5">
+                                <div>
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">First Party Driver</label>
+                                    <input type="text" data-claim-field="firstPartyDriver" data-claim-index="${index}" class="hud__input claim-input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-medium text-slate-800 pb-1" placeholder="Driver name...">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Third Party Driver</label>
+                                    <input type="text" data-claim-field="thirdPartyDriver" data-claim-index="${index}" class="hud__input claim-input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-medium text-slate-800 pb-1" placeholder="Driver name...">
+                                </div>
+                            </div>
+
+                            <!-- Description -->
                             <div class="mb-5">
                                 <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Description</label>
                                 <input type="text" data-claim-field="description" data-claim-index="${index}" class="hud__input claim-input w-full bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-500 transition-colors text-sm font-medium text-slate-800 pb-1" placeholder="Enter claim description...">
                             </div>
+
+                            <!-- Loss Details (KOL Items) - Only show if present -->
+                            ${claim.kolItems && claim.kolItems.length > 0 ? `
+                            <div class="mb-5 bg-amber-50 rounded-lg p-3 border border-amber-100">
+                                <label class="block text-[10px] font-bold text-amber-700 uppercase mb-3">Loss Details</label>
+                                <div class="space-y-2">
+                                    ${claim.kolItems.map((item, kolIdx) => `
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-amber-900 font-medium flex-1">${item.description}</span>
+                                            <span class="text-amber-700 font-mono text-xs">
+                                                $${item.loss} (L) / $${item.expense} (E)
+                                            </span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            ` : ''}
 
                             <!-- Bottom Row: Financials -->
                             <div class="bg-slate-50 rounded-lg p-3 border border-slate-100 hud__financials">
@@ -1504,15 +1651,47 @@
                 // Populate the newly created inputs with claim data
                 setTimeout(() => {
                     claims.forEach((claim, index) => {
-                        const fields = ['date', 'fault', 'company', 'status', 'description', 'loss', 'expense', 'total'];
+                        const fields = ['date', 'fault', 'company', 'status', 'description', 'loss', 'expense', 'total', 'firstPartyDriver', 'thirdPartyDriver'];
                         fields.forEach(field => {
                             const input = container.querySelector(`input[data-claim-index="${index}"][data-claim-field="${field}"]`);
-                            if (input && claim[field]) {
-                                input.value = claim[field];
+                            if (input) {
+                                // Display first party driver name or "-" if not available
+                                if (field === 'firstPartyDriver') {
+                                    input.value = claim[field] || '-';
+                                    if (drv.claims && drv.claims[index]) {
+                                        drv.claims[index][field] = claim[field] || '-';
+                                    }
+                                }
+                                // Display third party driver name or "-" if not available
+                                else if (field === 'thirdPartyDriver') {
+                                    input.value = claim[field] || '-';
+                                    if (drv.claims && drv.claims[index]) {
+                                        drv.claims[index][field] = claim[field] || '-';
+                                    }
+                                }
+                                else if (claim[field]) {
+                                    input.value = claim[field];
+                                }
                             }
                         });
                     });
                     console.log(`Rendered and populated ${claims.length} claim sections`);
+                    
+                    // Add event listeners to update claims array on input change
+                    container.querySelectorAll('.claim-input').forEach(input => {
+                        input.addEventListener('change', (e) => {
+                            const idx = parseInt(e.target.dataset.claimIndex);
+                            const field = e.target.dataset.claimField;
+                            if(drv.claims && drv.claims[idx]) {
+                                drv.claims[idx][field] = e.target.value;
+                                // Auto-calculate total
+                                const loss = parseFloat(drv.claims[idx].loss || 0);
+                                const expense = parseFloat(drv.claims[idx].expense || 0);
+                                drv.claims[idx].total = (loss + expense).toFixed(2);
+                                console.log(`[CLAIM] Updated claim #${idx} field '${field}':`, e.target.value);
+                            }
+                        });
+                    });
                 }, 0);
             },
 
@@ -1638,96 +1817,76 @@
                 const outField = document.getElementById('gap-days-output');
                 if(!outField) return;
 
-                // Always read from input fields for up-to-date values
-                // (Only declare gapStartField and gapEndField ONCE)
+                // Get input fields for UI display
                 const gapStartField = document.querySelector('[data-key="gapStart"]');
                 const gapEndField = document.querySelector('[data-key="gapEnd"]');
-                const startStr = gapStartField ? gapStartField.value : '';
-                const endStr = gapEndField ? gapEndField.value : '';
 
-                // Check if we have all policies data
+                // Check if we have policies data with at least 2 policies
                 if (!drv.allPolicies || drv.allPolicies.length < 2) {
-                    // Fallback to old logic if no policies data
-                    if (!startStr || !endStr || startStr.length !== 10 || endStr.length !== 10) {
-                        outField.value = "0 Days";
-                        return;
-                    }
-
-                    const dStart = new Date(startStr);
-                    const dEnd = new Date(endStr);
-
-                    if (isNaN(dStart) || isNaN(dEnd)) {
-                        outField.value = "Invalid Date";
-                        return;
-                    }
-
-                    const diffTime = dStart - dEnd;
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-                    if (diffDays > 0) {
-                        outField.value = `${diffDays} Days Gap`;
-                        outField.classList.add('text-rose-600');
-                        outField.classList.remove('text-slate-700');
-                    } else {
-                        outField.value = "0 Days"; 
-                        outField.classList.remove('text-rose-600');
-                        outField.classList.add('text-slate-700');
-                    }
+                    outField.value = "-";
+                    if (gapStartField) gapStartField.value = '';
+                    if (gapEndField) gapEndField.value = '';
+                    console.log('⚠️ Cannot calculate gap - fewer than 2 policies');
                     return;
                 }
 
-                // NEW LOGIC: Calculate gap between last policy END date and second-to-last policy END date
-                // Sort policies by number (descending) to get latest first
-                const sortedPolicies = [...drv.allPolicies].sort((a, b) => b.number - a.number);
+                // STRICT USER REQUIREMENT: Use LAST and PREVIOUS policies WITHOUT sorting
+                // The order provided by data is the source of truth
+                const lastPolicyIdx = drv.allPolicies.length - 1;
+                const prevPolicyIdx = drv.allPolicies.length - 2;
                 
-                console.log('📊 Calculating gap from policies:', sortedPolicies);
+                const lastPolicy = drv.allPolicies[lastPolicyIdx];
+                const prevPolicy = drv.allPolicies[prevPolicyIdx];
                 
-                // Get last policy (highest number/most recent) and previous policy
-                const lastPolicy = sortedPolicies[0];  // e.g., Policy #9 (latest)
-                const previousPolicy = sortedPolicies[1];  // e.g., Policy #8 (second to last)
+                console.log('📊 GAP CALCULATION (NO SORTING)');
+                console.log(`  LAST policy (index ${lastPolicyIdx}):`, lastPolicy);
+                console.log(`  PREVIOUS policy (index ${prevPolicyIdx}):`, prevPolicy);
                 
-                console.log(`Gap calculation:`);
-                console.log(`  Last policy (#${lastPolicy.number}) - End of Latest Term: ${lastPolicy.end_date}`);
-                console.log(`  Previous policy (#${previousPolicy.number}) - End of Latest Term: ${previousPolicy.end_date}`);
-                
-                // Gap = Last policy end date - Previous policy end date
+                // Policy field mappings (per user requirements):
+                // START OF TERM = LAST policy's "End of Latest Term" (end_date)
+                // PREV EXPIRE = PREVIOUS policy's "Start of Earliest Term" (start_date)
                 const lastPolicyEnd = new Date(lastPolicy.end_date);
-                const prevPolicyEnd = new Date(previousPolicy.end_date);
+                const prevPolicyStart = new Date(prevPolicy.start_date);
                 
-                if (isNaN(lastPolicyEnd) || isNaN(prevPolicyEnd)) {
+                console.log(`  LAST.end_date (START OF TERM): ${lastPolicy.end_date}`);
+                console.log(`  PREVIOUS.start_date (PREV EXPIRE): ${prevPolicy.start_date}`);
+                
+                if (isNaN(lastPolicyEnd) || isNaN(prevPolicyStart)) {
                     outField.value = "Invalid Date";
+                    console.error('❌ Invalid date in gap calculation');
                     return;
                 }
                 
-                // Calculate difference in days
-                const diffTime = lastPolicyEnd - prevPolicyEnd;
+                // Calculate gap: (LAST end_date) - (PREVIOUS start_date)
+                const diffTime = lastPolicyEnd - prevPolicyStart;
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                 
-                console.log(`  Gap in days: ${diffDays}`);
+                console.log(`  Gap calculation: ${lastPolicy.end_date} - ${prevPolicy.start_date} = ${diffDays} days`);
+                
+                // Update driver data
+                drv.gapStart = lastPolicy.end_date;
+                drv.gapEnd = prevPolicy.start_date;
                 
                 // Update UI fields
-                // Start of Term = Last policy's end date
-                // Prev Expire = Previous policy's end date
-                drv.gapStart = lastPolicy.end_date;
-                drv.gapEnd = previousPolicy.end_date;
-                
-                // Update the display fields in UI
                 if (gapStartField) gapStartField.value = lastPolicy.end_date;
-                if (gapEndField) gapEndField.value = previousPolicy.end_date;
+                if (gapEndField) gapEndField.value = prevPolicy.start_date;
                 
-                if (diffDays > 0) {
-                    outField.value = `${diffDays} Days Gap`;
-                    outField.classList.add('text-rose-600');
-                    outField.classList.remove('text-slate-700');
-                } else if (diffDays < 0) {
-                    outField.value = `Overlap (${Math.abs(diffDays)} Days)`;
-                    outField.classList.add('text-amber-600');
-                    outField.classList.remove('text-slate-700', 'text-rose-600');
-                } else {
-                    outField.value = "0 Days (Continuous)"; 
+                // Display result
+                if (diffDays === 0) {
+                    outField.value = "0 Days";
                     outField.classList.remove('text-rose-600', 'text-amber-600');
                     outField.classList.add('text-slate-700');
+                } else if (diffDays > 0) {
+                    outField.value = `Gap (${diffDays} Days)`;
+                    outField.classList.remove('text-amber-600', 'text-slate-700');
+                    outField.classList.add('text-rose-600');
+                } else {
+                    outField.value = `Overlap (${Math.abs(diffDays)} Days)`;
+                    outField.classList.remove('text-rose-600', 'text-slate-700');
+                    outField.classList.add('text-amber-600');
                 }
+                
+                console.log(`✅ Gap result: ${outField.value}`);
             },
 
             saveToDatabase: async function() {
@@ -1749,6 +1908,14 @@
                 }
 
                 try {
+                    // Sync all current driver data from form inputs (especially gap fields)
+                    const drv = this.drivers[this.currDrvIdx];
+                    const gapStartField = document.querySelector('[data-key="gapStart"]');
+                    const gapEndField = document.querySelector('[data-key="gapEnd"]');
+                    if (gapStartField) drv.gapStart = gapStartField.value;
+                    if (gapEndField) drv.gapEnd = gapEndField.value;
+                    console.log('💾 PRE-SAVE SYNC - gapStart:', drv.gapStart, 'gapEnd:', drv.gapEnd);
+
                     // Show saving state
                     btn.disabled = true;
                     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
@@ -1809,6 +1976,7 @@
                             
                             // Vehicles
                             vehicles: drv.vehicles,
+                            deletedVehicles: drv.deletedVehicles || [],  // Archive of deleted vehicles
                             
                             // Claims
                             claims: drv.claims || []

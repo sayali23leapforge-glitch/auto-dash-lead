@@ -23,8 +23,8 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 import hmac
 import hashlib
-# Import pdf_parser using package-relative import
-from backend.pdf_parser import parse_mvr_pdf, parse_dash_pdf
+# Import pdf_parser using relative import
+from pdf_parser import parse_mvr_pdf, parse_dash_pdf
 
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), '../.env.local'))
@@ -907,16 +907,15 @@ def get_client_data(query):
 
 
 
-@app.route('/api/save-property', methods=['POST'])
-
 @app.route('/api/get-property-data/<query>', methods=['GET'])
 def get_property_data(query):
     """Retrieve saved property data by email or lead ID"""
     try:
         print(f"📂 Retrieving property data for: {query}")
+        
         # Try to find by email (primary search)
         try:
-            result = supabase.table('properties').select('*').eq('customer->>email', query).limit(1).execute()
+            result = supabase.table('properties_data').select('*').eq('email', query).limit(1).execute()
             if result.data and len(result.data) > 0:
                 print(f"✅ Found property data by email: {query}")
                 return jsonify({
@@ -925,12 +924,14 @@ def get_property_data(query):
                 }), 200
         except Exception as e:
             print(f"⚠️ Error searching by email: {str(e)}")
+        
         print(f"⚠️ No property data found for: {query}")
         return jsonify({
             'success': False,
             'error': 'No data found',
             'data': None
         }), 404
+        
     except Exception as e:
         print(f"❌ Error retrieving property data: {str(e)}")
         import traceback
@@ -940,31 +941,97 @@ def get_property_data(query):
             'error': f'Failed to retrieve property data: {str(e)}'
         }), 500
 
+
 @app.route('/api/save-property', methods=['POST'])
 def save_property():
-    """Save complete property data to Supabase, upsert by customer email"""
+    """Save complete property data to Supabase linked to a lead"""
     try:
         data = request.json
+        
         if not data:
             return jsonify({'success': False, 'error': 'No data provided'}), 400
+        
         print(f"🏠 Saving property data to Supabase...")
-        print(f"📊 Data received: {json.dumps(data, indent=2)[:500]}...")
-        # Extract email from customer object
-        email = ''
-        if 'customer' in data and isinstance(data['customer'], dict):
-            email = data['customer'].get('email', '').strip().lower()
+        print(f"📊 Data received keys: {list(data.keys())}")
+        
+        # Get email to identify the lead
+        email = None
+        lead_id = None
+        
+        if data.get('customer') and isinstance(data['customer'], dict):
+            email = data['customer'].get('email', '').strip().lower() if data['customer'].get('email') else None
+            print(f"✓ Extracted email: {email}")
+        
         if not email:
-            return jsonify({'success': False, 'error': 'No email found in customer data'}), 400
-        # Upsert by customer email
-        result = supabase.table('properties').upsert(data, on_conflict=['customer->>email']).execute()
-        print(f"✅ Property saved successfully for email: {email}")
+            print(f"⚠️ No email provided in customer data")
+            return jsonify({'success': False, 'error': 'Email is required'}), 400
+        
+        # Find lead by email
+        if email:
+            try:
+                result = supabase.table('leads').select('id').eq('email', email).limit(1).execute()
+                if result.data and len(result.data) > 0:
+                    lead_id = result.data[0]['id']
+                    print(f"✅ Found lead by email {email}: {lead_id}")
+            except Exception as e:
+                print(f"⚠️ Error finding lead by email: {str(e)}")
+        
+        # Prepare data for storage
+        save_data = {
+            'email': email,
+            'properties': data.get('properties', []),
+            'customer': data.get('customer', {}),
+            'updated_at': datetime.utcnow().isoformat()
+        }
+        
+        # Add lead_id if found
+        if lead_id:
+            save_data['lead_id'] = lead_id
+        
+        print(f"💾 INSERT/UPDATE STEP - lead_id: {lead_id}, email: {email}")
+        print(f"📦 Data to save keys: {list(save_data.keys())}")
+        
+        # Insert or update in properties_data table
+        if email:
+            print(f"💡 Saving property data by email: {email}")
+            try:
+                # Check if record exists
+                result = supabase.table('properties_data').select('id').eq('email', email).limit(1).execute()
+                if result.data and len(result.data) > 0:
+                    print(f"🔄 Existing record found for email {email}, updating...")
+                    save_result = supabase.table('properties_data').update(save_data).eq('email', email).execute()
+                    print(f"✅ Updated existing property data for email {email}")
+                else:
+                    print(f"📝 No existing record for email {email}, inserting new...")
+                    save_result = supabase.table('properties_data').insert(save_data).execute()
+                    print(f"✅ Inserted new property data for email {email}")
+                    if save_result.data:
+                        print(f"   Inserted ID: {save_result.data[0].get('id')}")
+            except Exception as e:
+                print(f"❌ Error saving property data: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({'success': False, 'error': f'Failed to save: {str(e)}'}), 500
+        else:
+            print(f"❌ Cannot save - no email available")
+            return jsonify({
+                'success': False,
+                'error': 'Cannot save without email'
+            }), 400
+        
+        print(f"✅ Property data save operation completed")
+        
         return jsonify({
             'success': True,
             'message': 'Property data saved successfully',
-            'data': result.data
+            'lead_id': lead_id,
+            'email': email
         }), 200
+        
     except Exception as e:
         print(f"❌ Error saving property: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'error': f'Failed to save property: {str(e)}'

@@ -274,6 +274,9 @@
                 <div id="card-client" class="bg-white rounded-xl shadow-card border border-slate-100 overflow-hidden hud-scope transition-colors duration-200" data-scope="customer">
                     <div class="bg-emerald-50/50 px-5 py-3 border-b border-emerald-100 flex justify-between items-center">
                         <span class="text-[10px] font-bold text-emerald-900 uppercase tracking-widest">1. Client Details (Alt+1)</span>
+                        <button type="button" id="btn-autofill-dash" onclick="App.autoFillFromDASH()" class="text-[10px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1 rounded shadow-sm transition-colors flex items-center gap-1">
+                            <i class="fas fa-copy"></i> Auto Fill from DASH
+                        </button>
                         <span data-view="quoteType" class="text-[10px] font-bold text-white bg-emerald-600 px-2 py-0.5 rounded shadow-sm">--</span>
                     </div>
                     <div class="p-5 grid grid-cols-2 gap-8">
@@ -915,6 +918,14 @@
                     btn.disabled = true;
                     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
                     
+                    // Get email from stored lead info if available
+                    let email = '';
+                    if (this.originalLead && this.originalLead.email) {
+                        email = this.originalLead.email;
+                    }
+                    
+                    console.log('💾 Property save - email from lead:', email);
+                    
                     // Prepare complete property data structure
                     const propertyData = {
                         id: this.customer.name || Date.now().toString(), // Use customer name or timestamp as ID
@@ -929,7 +940,8 @@
                             phone: this.customer.phone,
                             dob: this.customer.dob,
                             consent: this.customer.consent,
-                            quoteType: this.customer.quoteType
+                            quoteType: this.customer.quoteType,
+                            email: email
                         },
                         // All Properties Array
                         properties: this.properties.map(prop => ({
@@ -1029,6 +1041,72 @@
             handleSearch: (q) => {
                 const res = document.getElementById('search-results');
                 if(q) res.classList.remove('hidden'); else res.classList.add('hidden');
+            },
+
+            autoFillFromDASH: function() {
+                console.log('🔄 Auto-filling from DASH data...');
+                
+                // Get the stored DASH data from localStorage
+                const dashDataStr = localStorage.getItem('dashData');
+                if (!dashDataStr) {
+                    alert('❌ No DASH data found. Please parse a DASH PDF first in the Auto Dashboard.');
+                    console.warn('No dashData in localStorage');
+                    return;
+                }
+
+                try {
+                    const dashData = JSON.parse(dashDataStr);
+                    console.log('📊 DASH Data found:', dashData);
+
+                    // Map DASH fields to Property fields
+                    const fieldMapping = {
+                        'name': 'name',                    // Customer Name
+                        'address': 'address',              // Address
+                        'dob': 'dob',                      // Date of Birth
+                        'phone': 'phone'                   // Phone
+                    };
+
+                    let filledCount = 0;
+                    const filledFields = [];
+
+                    // Auto-fill matching fields directly from DASH data
+                    Object.entries(fieldMapping).forEach(([dashKey, propKey]) => {
+                        const dashValue = dashData[dashKey];
+                        if (dashValue && dashValue !== '-' && dashValue !== 'N/A') {
+                            const propInput = document.querySelector(`[data-key="${propKey}"]`);
+                            if (propInput) {
+                                propInput.value = dashValue;
+                                
+                                // Trigger input event to ensure data binding
+                                propInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                propInput.dispatchEvent(new Event('change', { bubbles: true }));
+                                
+                                console.log(`✅ Filled ${propKey}: "${dashValue}"`);
+                                filledFields.push(`${propKey}: ${dashValue}`);
+                                filledCount++;
+                                
+                                // Visual feedback - highlight the field
+                                propInput.classList.add('ring-2', 'ring-indigo-400', 'bg-indigo-50');
+                                setTimeout(() => {
+                                    propInput.classList.remove('ring-2', 'ring-indigo-400', 'bg-indigo-50');
+                                }, 2000);
+                            }
+                        }
+                    });
+
+                    if (filledCount > 0) {
+                        this.setDirty(true);
+                        const message = `✅ Auto-filled ${filledCount} field(s) from DASH data:\n\n${filledFields.join('\n')}`;
+                        console.log(message);
+                        alert(message);
+                    } else {
+                        alert('⚠️ No matching data found to auto-fill.');
+                    }
+
+                } catch (error) {
+                    console.error('❌ Error parsing DASH data:', error);
+                    alert('❌ Error parsing DASH data. Please try again.');
+                }
             }
         };
 

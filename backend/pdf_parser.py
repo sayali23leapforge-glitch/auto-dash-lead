@@ -20,7 +20,7 @@ def parse_dash_pdf(pdf_file):
         dict: Extracted DASH information
     """
     try:
-        print("\n🔍 Starting DASH PDF parsing...")
+        print("\n[INFO] Starting DASH PDF parsing...")
         # Use pdfplumber for more robust text extraction
         import pdfplumber
         if isinstance(pdf_file, bytes):
@@ -28,7 +28,7 @@ def parse_dash_pdf(pdf_file):
         full_text = ""
         page_count = 0
         with pdfplumber.open(pdf_file) as pdf:
-            print(f"📄 PDF has {len(pdf.pages)} pages")
+            print(f"[PDF] PDF has {len(pdf.pages)} pages")
             for page_idx, page in enumerate(pdf.pages):
                 try:
                     page_text = page.extract_text()
@@ -39,19 +39,19 @@ def parse_dash_pdf(pdf_file):
                     else:
                         print(f"  Page {page_idx + 1}: No text extracted (possibly scanned image)")
                 except Exception as page_error:
-                    print(f"  ❌ Error extracting text from page {page_idx + 1}: {str(page_error)}")
+                    print(f"  [ERROR] Error extracting text from page {page_idx + 1}: {str(page_error)}")
         
-        print(f"✅ Successfully extracted text from {page_count} page(s), total: {len(full_text)} characters")
+        print(f"[OK] Successfully extracted text from {page_count} page(s), total: {len(full_text)} characters")
         
         if not full_text or len(full_text.strip()) < 50:
-            print("⚠️ WARNING: Extracted text is too short or empty")
+            print("[WARNING] Extracted text is too short or empty")
             print(f"First 100 chars: {full_text[:100]}")
 
         # Parse the extracted text
-        print("🔄 Calling extract_dash_fields...")
+        print("[PARSE] Calling extract_dash_fields...")
         dash_data = extract_dash_fields(full_text)
         
-        print(f"✅ DASH parsing complete. Extracted fields: {list(dash_data.keys())}")
+        print(f"[OK] DASH parsing complete. Extracted fields: {list(dash_data.keys())}")
         
         return {
             "success": True,
@@ -60,7 +60,7 @@ def parse_dash_pdf(pdf_file):
         }
     except Exception as e:
         error_msg = f"PDF Parsing Error: {str(e)}"
-        print(f"❌ {error_msg}")
+        print(f"[ERROR] {error_msg}")
         import traceback
         traceback.print_exc()
         return {
@@ -82,20 +82,30 @@ def extract_dash_fields(text):
         date_str = report_date_match.group(1).replace(' ', '')
         data['issue_date'] = normalize_date(date_str)
         data['report_date'] = normalize_date(date_str)
-        print(f"✓ Found Report Date: {data['report_date']}")
+        print(f" Found Report Date: {data['report_date']}")
     
-    # Driver Name - DASH format is "Garnica, Ivan" right after "DRIVER REPORT"
+    # Driver Name - Extract only the name part, stopping at keywords
+    # DASH format: "DRIVER REPORT\nNAME Report Date:" or similar
     name_patterns = [
-        r'DRIVER\s+REPORT\s*\n\s*([A-Z][a-z]+,\s*[A-Z][a-z]+)',  # "Garnica, Ivan"
-        r'(?:Driver|Name|Client)[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)',
-        r'([A-Z][a-z]+,\s*[A-Z][a-z]+)',  # Generic: Last, First
+        # Match right after "DRIVER REPORT" - capture name before "Report Date"
+        r'DRIVER\s+REPORT\s*\n\s*([A-Z][A-Za-z,\s]+?)\s+Report\s+Date',
+        # Match "NAME: WORD WORD" format
+        r'(?:FULL\s+)?NAME\s*[:\s]*([A-Z][A-Za-z\s]+?)(?=\s+(?:Report|Date|Address|Phone|Email|DOB|DLN|License|Expiry|Expir|Issue|Valid|Birth|Number|Renewal|Issued)|\s*$)',
+        # Match generic "WORD WORD" after "DRIVER REPORT" (for names with comma like "Last, First")
+        r'DRIVER\s+REPORT\s*\n\s*([A-Z][a-z]+,\s*[A-Z][a-z]+)',  
     ]
     for pattern in name_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
+        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
         if match:
-            data['name'] = match.group(1).strip()
-            print(f"Found name: {data['name']}")
-            break
+            name_extracted = match.group(1).strip()
+            # Clean up: remove extra spaces, newlines
+            name_extracted = re.sub(r'\s+', ' ', name_extracted).strip()
+            # Remove any remaining keywords at the end
+            name_extracted = re.sub(r'\s+(REPORT|DATE|ADDRESS|PHONE|EMAIL|DOB|DLN|LICENSE|EXPIRY|EXPIR|ISSUE|VALID|BIRTH|NUMBER|RENEWAL|ISSUED|REQUESTOR)\s*$', '', name_extracted, flags=re.IGNORECASE).strip()
+            if name_extracted and len(name_extracted) > 2 and 'REPORT' not in name_extracted.upper():  # Ensure we have a valid name
+                data['name'] = name_extracted
+                print(f" Found name: {data['name']}")
+                break
     
     # Address - format: "Address: 201-1480 Eglinton Ave W ,Toronto,ON M6C2G5"
     address_patterns = [
@@ -160,11 +170,11 @@ def extract_dash_fields(text):
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             data['issue_date'] = normalize_date(match.group(1))
-            print(f"✓ Found issue/renewal/report date: {data['issue_date']} (pattern: {pattern[:30]}...)")
+            print(f" Found issue/renewal/report date: {data['issue_date']} (pattern: {pattern[:30]}...)")
             break
     
     if not data.get('issue_date'):
-        print("⚠️ No issue/renewal/report date found in PDF")
+        print("[WARNING] No issue/renewal/report date found in PDF")
     
     # Class
     class_patterns = [
@@ -177,39 +187,82 @@ def extract_dash_fields(text):
             data['license_class'] = match.group(1).strip()
             break
     
-    # VIN Number - 17 character vehicle identification number
-    # Format in PDF: "2012  TOYOTA - SIENNA  LE V6 AWD - 5TDJK3DC8CS035732"
-    vin_patterns = [
-        r'VIN[:\s#]*([A-HJ-NPR-Z0-9]{17})',  # Standard VIN (excludes I, O, Q)
-        r'Vehicle\s*Identification\s*(?:Number|#)?[:\s]+([A-HJ-NPR-Z0-9]{17})',
-        r'V\.?I\.?N\.?[:\s]*([A-HJ-NPR-Z0-9]{17})',
-        r'-\s*([A-HJ-NPR-Z0-9]{17})\s+Coverage',  # Extract VIN before "Coverage"
-        r'AWD\s*-\s*([A-HJ-NPR-Z0-9]{17})'  # After AWD/FWD etc
-    ]
-    for pattern in vin_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            data['vin'] = match.group(1).strip().upper()
-            print(f"✓ Found VIN: {data['vin']}")
-            break
+    # VIN and Vehicle info: Extract ONLY from Policy #1 section
+    # Find Policy #1, then extract up to Policy #2 (or end if no Policy #2)
     
-    if not data.get('vin'):
-        print("⚠️ No VIN found in PDF")
+    policy1_pos = text.find('Policy #1')
     
-    # Vehicle Year/Make/Model - Format: "2012  TOYOTA - SIENNA  LE V6 AWD"
-    vehicle_match = re.search(r'Vehicle #1:\s*(\d{4})\s+([A-Z]+)\s*-\s*([^-]+?)\s*-\s*[A-HJ-NPR-Z0-9]{17}', text)
-    if vehicle_match:
-        year = vehicle_match.group(1)
-        make = vehicle_match.group(2)
-        model = vehicle_match.group(3).strip()
-        data['vehicle_year_make_model'] = f"{year} {make} {model}"
-        print(f"✓ Found Vehicle: {data['vehicle_year_make_model']}")
+    if policy1_pos >= 0:
+        # Find the NEXT policy number after Policy #1
+        # Search from after "Policy #1" to find "Policy #2", "Policy #3", etc.
+        remaining_text = text[policy1_pos + len('Policy #1'):]
+        
+        next_policy_match = re.search(r'Policy\s*#(\d+)', remaining_text)
+        
+        if next_policy_match:
+            # Policy #1 section ends where the next policy begins
+            next_policy_pos = policy1_pos + len('Policy #1') + next_policy_match.start()
+            policy1_section = text[policy1_pos:next_policy_pos]
+        else:
+            # No next policy, take the rest of the document
+            policy1_section = text[policy1_pos:]
+        
+        # Now find Vehicle #1 with VIN in this Policy #1 section
+        # Strategy: Find ALL "Vehicle #1:" occurrences and pick the one with a VIN
+        # Skip entries that are just "Principal Operator" or "Named Insured"
+        
+        # Split by "Vehicle #1:" to get all vehicle blocks
+        vehicle_blocks = re.split(r'Vehicle\s*#1:\s*', policy1_section, flags=re.IGNORECASE)
+        
+        vin = '-'
+        vehicle_year_make_model = '-'
+        found = False
+        
+        for block in vehicle_blocks[1:]:  # Skip the first element (before first Vehicle #1)
+            # Check if this block contains a VIN (17-char code)
+            vin_match = re.search(r'([A-HJ-NPR-Z0-9]{17})', block)
+            
+            if vin_match and not re.match(r'^(Principal Operator|Named Insured|Self|Spouse)', block.strip(), re.IGNORECASE):
+                # This block has a VIN and is not just a role label
+                vin = vin_match.group(1).strip().upper()
+                
+                # Extract year/make/model - everything up to the VIN
+                vehicle_line = block[:vin_match.start()].strip()
+                
+                # Take only the first line or first part before Coverage details
+                lines = vehicle_line.split('\n')
+                vehicle_info = lines[0].strip() if lines else vehicle_line
+                
+                # Clean up the text
+                vehicle_info = re.sub(r'\s+', ' ', vehicle_info)  # collapse whitespace
+                vehicle_info = vehicle_info.rstrip(' -/').strip()   # remove trailing separators
+                
+                # Skip if it's empty or just a role
+                if vehicle_info and not re.match(r'^(Principal Operator|Named Insured|Self|Spouse|DLN|Ontario|Relationship)', vehicle_info, re.IGNORECASE):
+                    vehicle_year_make_model = vehicle_info
+                    found = True
+                    print(f" Found Vehicle #1 from Policy #1 with VIN: {vehicle_year_make_model}")
+                    print(f" Found VIN: {vin}")
+                    break
+        
+        if not found:
+            print("- No Vehicle #1 with VIN found in Policy #1 section")
+            vin = '-'
+            vehicle_year_make_model = '-'
+    else:
+        print("- Policy #1 not found in PDF")
+        vin = '-'
+        vehicle_year_make_model = '-'
+    
+    data['vin'] = vin
+    data['vehicle_year_make_model'] = vehicle_year_make_model
+    data['extracted_from_policy'] = '1'  # Indicates this is from Policy #1
     
     # Years of Continuous Insurance
     cont_ins_match = re.search(r'Years\s+of\s+Continuous\s+Insurance:\s*(\d+)', text, re.IGNORECASE)
     if cont_ins_match:
         data['years_continuous_insurance'] = cont_ins_match.group(1)
-        print(f"✓ Years of Continuous Insurance: {data['years_continuous_insurance']}")
+        print(f" Years of Continuous Insurance: {data['years_continuous_insurance']}")
     
     # Policy dates for gap calculation
     # Find all policies in the Policies section: "#1 2025-08-08 to 2026-08-08 ..."
@@ -234,41 +287,41 @@ def extract_dash_fields(text):
             # Sort by policy number to ensure correct order
             all_policies.sort(key=lambda x: x['number'])
             data['all_policies'] = all_policies
-            print(f"✓ Extracted {len(all_policies)} policies for gap calculation")
+            print(f" Extracted {len(all_policies)} policies for gap calculation")
             
-            # Get the LAST policy (oldest one, highest number)
-            last_policy = policy_matches[-1]
-            policy_num = last_policy.group(1)
-            start_date = last_policy.group(2).replace(' ', '')  # Remove any spaces
-            end_date = last_policy.group(3).replace(' ', '')
+            # Get the FIRST policy (Policy #1)
+            first_policy_data = all_policies[0]
             
-            # First insurance = start date of the LAST/oldest policy
-            data['first_insurance_date'] = normalize_date(start_date)
-            print(f"✓ First Insurance Date (from Policy #{policy_num} start): {data['first_insurance_date']}")
+            # First insurance = start date of Policy #1 (oldest policy)
+            data['first_insurance_date'] = first_policy_data['start_date']
             
-            # Get the FIRST policy (current/latest one, #1)
-            first_policy = policy_matches[0]
-            current_start = first_policy.group(2).replace(' ', '')
-            current_end = first_policy.group(3).replace(' ', '')
+            # Renewal date = Policy #1 expiry date (will be overridden by expiry_date field if present)
+            data['renewal_date'] = first_policy_data['end_date']
             
-            data['policy_start_date'] = normalize_date(current_start)
-            data['policy_end_date'] = normalize_date(current_end)
-            data['renewal_date'] = normalize_date(current_end)  # Always add renewal_date as expiry of policy #1
-            print(f"✓ Current Policy Dates: {data['policy_start_date']} to {data['policy_end_date']}")
-            print(f"✓ Renewal Date (Policy #1 Expiry): {data['renewal_date']}")
+            # Policy end date = Policy #1 expiry date
+            data['policy_end_date'] = first_policy_data['end_date']
+            
+            # Get the LAST policy (current/latest one) for policy_start_date
+            last_policy_data = all_policies[-1]
+            data['policy_start_date'] = last_policy_data['start_date']
+            
+            print(f" First Insurance Date (from Policy #1 start): {data['first_insurance_date']}")
+            print(f" Renewal Date (Policy #1 Expiry): {data['renewal_date']}")
+            print(f" Current Policy Start Date: {data['policy_start_date']}")
+
     
     # Fallback: Try to get from detail section if policies section not found
     if not data.get('policy_start_date'):
         earliest_term_match = re.search(r'Start\s+of\s+the\s+Earliest\s+Term:\s*(\d{4}-\d{2}-\d{2})', text)
         if earliest_term_match:
             data['policy_start_date'] = normalize_date(earliest_term_match.group(1))
-            print(f"✓ Policy Start Date (fallback): {data['policy_start_date']}")
+            print(f" Policy Start Date (fallback): {data['policy_start_date']}")
     
     if not data.get('policy_end_date'):
         latest_term_match = re.search(r'End\s+of\s+the\s+Latest\s+Term:\s*(\d{4}-\d{2}-\d{2})', text)
         if latest_term_match:
             data['policy_end_date'] = normalize_date(latest_term_match.group(1))
-            print(f"✓ Policy End Date (fallback): {data['policy_end_date']}")
+            print(f" Policy End Date (fallback): {data['policy_end_date']}")
     
     # Status
     status_patterns = [
@@ -341,6 +394,7 @@ def extract_dash_fields(text):
                 
             claim_num = num_match.group(1)
             print(f"\n[CLAIM {claim_num}] Processing...")
+            print(f"[CLAIM {claim_num}] TEXT PREVIEW: {part[:800]}")  # DEBUG: Show first 800 chars
             
             # Extract date of loss
             date_match = re.search(r'(\d{4}[-/]\d{1,2}[-/]\d{1,2})', part)
@@ -417,9 +471,50 @@ def extract_dash_fields(text):
             
             claim['date'] = normalize_date(loss_date)
             
-            # Extract company name (remove *THIRD PARTY* if present)
+            # Extract FIRST PARTY DRIVER NAME
+            # In DASH reports, look for "First Party Driver:" label followed by the name
+            # Search in the current claim section first, then in the full PDF text
+            first_party_driver = ''
+            first_party_match = re.search(r'First\s+Party\s+Driver\s*:\s*([A-Z][A-Za-z\s\-\']+(?:,\s*[A-Z][A-Za-z\s\-\']+)?)', part, re.IGNORECASE)
+            if first_party_match:
+                first_party_driver = first_party_match.group(1).strip()
+            else:
+                # If not found in claim section, search the full PDF text around this claim date
+                # Create a pattern to find the claim by date and extract details after it
+                claim_detail_pattern = rf'Claim\s*#[:\s]*{claim_num}\s+Date\s+of\s+Loss\s+{re.escape(loss_date)}.*?First\s+Party\s+Driver\s*:\s*([A-Z][A-Za-z\s\-\']+(?:,\s*[A-Z][A-Za-z\s\-\']+)?)'
+                full_match = re.search(claim_detail_pattern, text, re.DOTALL | re.IGNORECASE)
+                if full_match:
+                    first_party_driver = full_match.group(1).strip()
+                    # Clean up - remove anything after newline or extra content
+                    first_party_driver = first_party_driver.split('\n')[0].strip()
+                    # Also remove trailing text like "DLN" if it got included
+                    first_party_driver = re.sub(r'\s+(DLN|Date\s+of|Listed|Excl|Convict).*$', '', first_party_driver, flags=re.IGNORECASE)
+            
+            # Clean up the name - remove newlines and extra whitespace
+            first_party_driver = first_party_driver.split('\n')[0].strip() if first_party_driver else ''
+            first_party_driver = re.sub(r'\s+(DLN|Date\s+of|Listed|Excl|Convict).*$', '', first_party_driver, flags=re.IGNORECASE)
+            
+            if first_party_driver:
+                claim['firstPartyDriver'] = first_party_driver
+                print(f"  [FOUND] First Party Driver: {first_party_driver}")
+            else:
+                print(f"  [NOT FOUND] First Party Driver")
+            
+            # Extract company name and check for THIRD PARTY indicator
             company = re.sub(r'\*.*?\*', '', company_and_notes).strip()
             claim['company'] = company
+            
+            # Extract THIRD PARTY DRIVER NAME
+            # If company contains "*THIRD PARTY*" or similar, extract the third party name
+            third_party_match = re.search(r'\*?THIRD\s*PARTY\*?\s*[-:\s]*([A-Z][A-Z\s\-\']+,\s*[A-Z][A-Za-z\s\-\']+)?', company_and_notes, re.IGNORECASE)
+            if third_party_match and third_party_match.group(1):
+                claim['thirdPartyDriver'] = third_party_match.group(1).strip()
+                print(f"  Third Party Driver: {claim['thirdPartyDriver']}")
+            elif re.search(r'\*?THIRD\s*PARTY\*?', company_and_notes, re.IGNORECASE):
+                # Third party claim but no explicit name extracted, use company as fallback
+                claim['thirdPartyDriver'] = company.replace('*THIRD PARTY*', '').strip() or 'Third Party'
+                print(f"  Third Party Driver (from company): {claim['thirdPartyDriver']}")
+            
             
             # At-fault
             if at_fault_pct == '0':
@@ -445,11 +540,48 @@ def extract_dash_fields(text):
                 try:
                     total = float(loss_val) + float(expense_val)
                     claim['total'] = f'{total:.2f}'
-                    print(f"  → Financials: Loss=${loss_val}, Expense=${expense_val}, Total=${total:.2f}")
+                    print(f"  -> Financials: Loss=${loss_val}, Expense=${expense_val}, Total=${total:.2f}")
                 except ValueError:
-                    print(f"  ⚠️ Could not calculate total for claim #{claim_num}")
+                    print(f"  [WARNING] Could not calculate total for claim #{claim_num}")
+                
+                # Extract KOL (claim loss details) items like "KOL16 - Other Property Damage..."
+                # Pattern: KOL## - Description: $X (Loss); $Y (Expense);
+                # Search in the current claim section and the full PDF
+                kol_matches = []
+                
+                # Improved regex to handle variations in spacing and newlines
+                # Match KOL## followed by description, then amounts
+                kol_pattern = r'(KOL\d+\s*[-–]\s*[^\n:]+?):\s*\$\s*([\d,\.]+)\s*\(Loss\);\s*\$\s*([\d,\.]+)\s*\(Expense\);'
+                kol_matches = re.findall(kol_pattern, part, re.IGNORECASE)
+                
+                # If not found in claim section, search full PDF for this specific claim's details
+                if not kol_matches:
+                    # Search a large area around the claim number to find KOL items
+                    # Look for "Claim #X" and capture everything until the next "Claim #" or end of document
+                    claim_section_pattern = rf'Claim\s*#\s*{claim_num}.*?(?=Claim\s*#\d+|Convictions|$)'
+                    claim_section_match = re.search(claim_section_pattern, text, re.DOTALL | re.IGNORECASE)
+                    if claim_section_match:
+                        claim_section_text = claim_section_match.group(0)
+                        kol_matches = re.findall(kol_pattern, claim_section_text, re.IGNORECASE)
+                
+                if kol_matches:
+                    kol_items = []
+                    for kol_desc, kol_loss, kol_expense in kol_matches:
+                        # Clean up description - remove extra whitespace and newlines
+                        clean_desc = ' '.join(kol_desc.split())
+                        kol_items.append({
+                            'description': clean_desc.strip(),
+                            'loss': kol_loss.strip(),
+                            'expense': kol_expense.strip()
+                        })
+                    claim['kolItems'] = kol_items
+                    print(f"  -> Found {len(kol_items)} loss detail items (KOL)")
+                    for item in kol_items:
+                        print(f"     • {item['description']}: ${item['loss']} (Loss), ${item['expense']} (Expense)")
+                else:
+                    print(f"  -> No loss detail items (KOL) found for this claim")
             else:
-                print(f"  ⚠️ No financial details found for claim #{claim_num}")
+                print(f"  [WARNING] No financial details found for claim #{claim_num}")
             
             # Try to find claim status
             status_pattern = rf'Claim #{claim_num}.*?Claim\s*Status:\s*(\w+)'
@@ -459,21 +591,21 @@ def extract_dash_fields(text):
             else:
                 claim['status'] = 'Closed'  # Default if not found
             
-            print(f"✓ Claim #{claim_num}: {claim['date']}, Company={claim['company']}, At-Fault={claim['fault']}, Status={claim.get('status', 'N/A')}")
+            print(f" Claim #{claim_num}: {claim['date']}, Company={claim['company']}, At-Fault={claim['fault']}, Status={claim.get('status', 'N/A')}")
             claims.append(claim)
     else:
-        print("⚠️ No 'Claims' section found in PDF")
+        print("[WARNING] No 'Claims' section found in PDF")
     
-    print(f"\n✓ FINAL: {len(claims)} claims extracted from Claims section")
+    print(f"\n FINAL: {len(claims)} claims extracted from Claims section")
     
     if claims:
         data['claims'] = claims
         data['claims_count'] = str(len(claims))
-        print(f"✓ Returning {len(claims)} valid claims\n")
+        print(f" Returning {len(claims)} valid claims\n")
     else:
         data['claims'] = []
         data['claims_count'] = '0'
-        print(f"ℹ No valid claims found in PDF\n")
+        print(f"[INFO] No valid claims found in PDF\n")
     
     # Email
     email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', text)
@@ -499,9 +631,42 @@ def extract_dash_fields(text):
         data['email'] = email_match.group(0)
         print(f"Found email: {data['email']}")
     
+    # Extract Policy #1 Expiry Date from the policy detail section (NOT the "to" date from policies list)
+    # The "to" date might be the cancellation date, but "Expiry Date:" is the actual expiry
+    if policy1_pos >= 0:
+        # Get Policy #1 section
+        remaining_text = text[policy1_pos + len('Policy #1'):]
+        next_policy_match = re.search(r'Policy\s*#(\d+)', remaining_text)
+        
+        if next_policy_match:
+            next_policy_pos = policy1_pos + len('Policy #1') + next_policy_match.start()
+            policy1_section = text[policy1_pos:next_policy_pos]
+        else:
+            policy1_section = text[policy1_pos:]
+        
+        # Look for "Expiry Date: YYYY-MM-DD" or "Expiry Date: MM/DD/YYYY"
+        expiry_date_patterns = [
+            r'Expiry\s*Date:\s*(\d{4}-\d{1,2}-\d{1,2})',  # YYYY-MM-DD format
+            r'Expiry\s*Date:\s*(\d{1,2}/\d{1,2}/\d{4})',  # MM/DD/YYYY format
+        ]
+        
+        policy1_expiry_found = False
+        for pattern in expiry_date_patterns:
+            expiry_match = re.search(pattern, policy1_section, re.IGNORECASE)
+            if expiry_match:
+                policy1_expiry_date = normalize_date(expiry_match.group(1))
+                data['renewal_date'] = policy1_expiry_date
+                policy1_expiry_found = True
+                print(f" Found Policy #1 Expiry Date: {policy1_expiry_date}")
+                print(f" Updated Renewal Date to Policy #1 Expiry Date: {data['renewal_date']}")
+                break
+        
+        if not policy1_expiry_found:
+            print(f" Policy #1 Expiry Date not found in policy detail section, using policy list end_date")
+    
     # Log what was extracted
     extracted_fields = [k for k, v in data.items() if v]
-    print(f"\n✅ DASH extraction complete:")
+    print(f"\n[OK] DASH extraction complete:")
     print(f"  Fields extracted: {extracted_fields}")
     print(f"  Total fields with values: {len(extracted_fields)} out of {len(data)}")
     print(f"=== DASH EXTRACTED DATA ===")
@@ -509,7 +674,7 @@ def extract_dash_fields(text):
     print(f"=== END DATA ===")
     
     if not extracted_fields:
-        print("\n⚠️ WARNING: No fields were extracted from the PDF text!")
+        print("\n[WARNING] WARNING: No fields were extracted from the PDF text!")
         print("This could mean:")
         print("  1. PDF is image-based/scanned (needs OCR)")
         print("  2. Text layout doesn't match expected patterns")
@@ -577,12 +742,14 @@ def extract_mvr_fields(text):
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             data['license_number'] = match.group(1).strip()
-            print(f"✓ Found License Number: {data['license_number']}")
+            print(f" Found License Number: {data['license_number']}")
             break
     
     # Expiry Date - MVR format: "Expiry Date: 03/02/2030"
+    # NOTE: This is the DRIVER'S LICENSE expiry date, NOT the policy renewal date
+    # Renewal date should only come from DASH PDF (Policy #1 Expiry Date)
     expiry_patterns = [
-        r'Expiry Date:\s*(\d{1,2}/\d{1,2}/\d{4})',  # MVR format
+        r'Expiry Date:\s*(\d{1,2}/\d{1,2}/\d{4})',  # MVR format - driver's license expiry
         r'Expir(?:y|ation)\s*Date[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
         r'Exp\.?\s*Date[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
         r'Valid\s*(?:Through|Until)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})'
@@ -591,7 +758,9 @@ def extract_mvr_fields(text):
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             data['expiry_date'] = normalize_date(match.group(1))
-            print(f"✓ Found Expiry Date: {data['expiry_date']}")
+            print(f" Found License Expiry Date: {data['expiry_date']}")
+            # DO NOT override renewal_date here - it should only come from DASH PDF
+            # The expiry_date here is the driver's license expiry, not policy renewal
             break
     
     # Date of Birth - MVR format: "Birth Date: 03/02/1980"
@@ -605,7 +774,7 @@ def extract_mvr_fields(text):
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             data['dob'] = normalize_date(match.group(1))
-            print(f"✓ Found DOB: {data['dob']}")
+            print(f" Found DOB: {data['dob']}")
             break
     
     # Issue Date - MVR format: "Issue Date: 16/11/2001"
@@ -618,7 +787,7 @@ def extract_mvr_fields(text):
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             data['issue_date'] = normalize_date(match.group(1))
-            print(f"✓ Found Issue Date: {data['issue_date']}")
+            print(f" Found Issue Date: {data['issue_date']}")
             break
     
     # License Status - MVR format: "Status: LICENCED"
@@ -636,7 +805,7 @@ def extract_mvr_fields(text):
                 data['license_status'] = 'Valid'
             else:
                 data['license_status'] = status.capitalize()
-            print(f"✓ Found License Status: {data['license_status']}")
+            print(f" Found License Status: {data['license_status']}")
             break
     
     # Class/Type - MVR format: "Class: G***"
@@ -650,7 +819,7 @@ def extract_mvr_fields(text):
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             data['license_class'] = match.group(1).strip().replace('*', '')
-            print(f"✓ Found License Class: {data['license_class']}")
+            print(f" Found License Class: {data['license_class']}")
             break
     
     # Demerit Points - MVR format: "Demerit Points: 00"
@@ -664,7 +833,7 @@ def extract_mvr_fields(text):
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             data['demerit_points'] = match.group(1)
-            print(f"✓ Found Demerit Points: {data['demerit_points']}")
+            print(f" Found Demerit Points: {data['demerit_points']}")
             break
     
     # Conditions/Restrictions - MVR format: "Conditions: */N"
@@ -679,7 +848,7 @@ def extract_mvr_fields(text):
             # Skip if it's just */N or similar placeholder
             if cond and cond not in ['*/N', '*', 'N', 'None', 'NONE']:
                 data['conditions'] = cond
-                print(f"✓ Found Conditions: {data['conditions']}")
+                print(f" Found Conditions: {data['conditions']}")
             break
     
     # Number of Convictions - MVR format: "***Number of Convictions: 0 ***"
@@ -688,23 +857,33 @@ def extract_mvr_fields(text):
     if conv_match:
         conv_count = int(conv_match.group(1))
         data['convictions_count'] = str(conv_count)
-        print(f"✓ Found Convictions Count: {conv_count}")
+        print(f" Found Convictions Count: {conv_count}")
         
         # If there are convictions, try to extract them
         if conv_count > 0:
             convictions = []
             
-            # Find the "Number of Convictions" section
-            conv_section_start = conv_match.end()
-            # Look for the next section header or end of document
-            next_section = re.search(r'(?:^\*+|^[A-Z\*]{3,})', text[conv_section_start:], re.MULTILINE)
-            if next_section:
-                conv_section = text[conv_section_start:conv_section_start + next_section.start()]
+            # Find the "DATE CONVICTIONS, DISCHARGES AND OTHER ACTIONS" section (or similar)
+            # This section typically contains the actual conviction details
+            conv_section = None
+            
+            # Try to find "DATE CONVICTIONS" or similar header
+            conv_header_match = re.search(r'DATE\s+CONVICTIONS.*?\n(.*?)(?=\*{3,}|END OF REPORT|Licence Number|^$)', text, re.IGNORECASE | re.DOTALL | re.MULTILINE)
+            
+            if conv_header_match:
+                conv_section = conv_header_match.group(1)
             else:
-                conv_section = text[conv_section_start:]
+                # Fallback: look from the "Number of Convictions" match onwards
+                conv_section_start = conv_match.end()
+                # Look for the next section header or end of document
+                next_section = re.search(r'(?:^\*+|^[A-Z\*]{3,}|END OF REPORT)', text[conv_section_start:], re.MULTILINE | re.IGNORECASE)
+                if next_section:
+                    conv_section = text[conv_section_start:conv_section_start + next_section.start()]
+                else:
+                    conv_section = text[conv_section_start:]
             
             print(f"\n=== CONVICTIONS SECTION (First 2000 chars) ===")
-            print(conv_section[:2000])
+            print(conv_section[:2000] if conv_section else "NO SECTION FOUND")
             print(f"=== END CONVICTIONS SECTION ===\n")
             
             # Try multiple patterns to extract conviction details
@@ -712,13 +891,15 @@ def extract_mvr_fields(text):
             # Looking for patterns like:
             # 01/15/2023 Speeding 20+ km/h over limit Fine: $280
             # Or: 01/15/2023 - Speeding...
-            # Or list format with conviction headers
+            # Or: DISOBEY LEGAL SIGN / OFFENCE DATE 2024/12/28 (multi-line format)
             
             conv_detail_patterns = [
+                # Multi-line format: Description on one line, OFFENCE DATE on next
+                r'([A-Za-z\s\-\(\)0-9\.&/]+?)\s*\n\s*OFFENCE\s+DATE\s+(\d{1,2}/\d{1,2}/\d{4})',
                 # Date + offense + fine (most common MVR format)
                 r'(\d{1,2}/\d{1,2}/\d{4})\s+([A-Za-z\s\-\(\)0-9\.&/]+?)(?:\s+Fine:\s*\$?[\d,.]+|\s+Penalty.*)?(?:\n|$)',
                 # Date - description format
-                r'(\d{1,2}/\d{1,2}/\d{4})\s*[\-–]\s*([A-Za-z\s\-\(\)0-9\.&/]+?)(?:\n|$)',
+                r'(\d{1,2}/\d{1,2}/\d{4})\s*[\-]\s*([A-Za-z\s\-\(\)0-9\.&/]+?)(?:\n|$)',
                 # Numbered conviction format: 1. Date Description
                 r'^\s*\d+\.\s+(\d{1,2}/\d{1,2}/\d{4})\s+([A-Za-z\s\-\(\)0-9\.&/]+?)$',
                 # Conviction list format with newlines separating offense from fine
@@ -731,8 +912,15 @@ def extract_mvr_fields(text):
                 matched_count = 0
                 
                 for match in conv_matches:
-                    date_str = match.group(1).strip()
-                    description = match.group(2).strip()
+                    # Handle both formats: (date, description) and (description, date)
+                    if 'OFFENCE' in pattern or 'OFFENCE' in match.group(0):
+                        # Format: description first, date second
+                        description = match.group(1).strip()
+                        date_str = match.group(2).strip()
+                    else:
+                        # Format: date first, description second
+                        date_str = match.group(1).strip()
+                        description = match.group(2).strip()
                     
                     # Clean up description - remove extra whitespace and common artifacts
                     description = re.sub(r'\s+', ' ', description)
@@ -750,28 +938,28 @@ def extract_mvr_fields(text):
                         if conviction not in convictions:
                             convictions.append(conviction)
                             matched_count += 1
-                            print(f"  ✓ Found: {conviction['date']} - {conviction['description'][:60]}...")
+                            print(f"   Found: {conviction['date']} - {conviction['description'][:60]}...")
                 
                 # If we found enough convictions with this pattern, use it
                 if len(convictions) >= conv_count:
-                    print(f"✓ Pattern matched {matched_count} convictions, stopping pattern search")
+                    print(f" Pattern matched {matched_count} convictions, stopping pattern search")
                     break
                 elif matched_count > 0:
-                    print(f"✓ Pattern matched {matched_count} conviction(s)")
+                    print(f" Pattern matched {matched_count} conviction(s)")
             
             if convictions:
                 data['convictions'] = convictions
-                print(f"\n✅ Extracted {len(convictions)} conviction details out of {conv_count} expected")
+                print(f"\n[OK] Extracted {len(convictions)} conviction details out of {conv_count} expected")
                 if len(convictions) < conv_count:
-                    print(f"⚠️  Note: Expected {conv_count} but found {len(convictions)} - PDF format may vary")
+                    print(f"[WARNING]  Note: Expected {conv_count} but found {len(convictions)} - PDF format may vary")
             else:
                 # If we couldn't extract details, at least show count
-                print(f"⚠️  Could not extract conviction details (found count: {conv_count})")
+                print(f"[WARNING]  Could not extract conviction details (found count: {conv_count})")
                 print(f"    This might be due to PDF format variation. Please check the PDF manually.")
     else:
         # Default to 0 if not found
         data['convictions_count'] = '0'
-        print(f"✓ No convictions section found (defaulting to 0 convictions)")
+        print(f" No convictions section found (defaulting to 0 convictions)")
     
     print(f"=== MVR EXTRACTED DATA ===")
     print(json.dumps(data, indent=2))
